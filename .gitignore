@@ -55,3 +55,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+#rust
+**/*.d
+**/*.o
+target/
+rust-worker/target
+**/*.rs.bk

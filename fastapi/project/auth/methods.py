@@ -6,26 +6,26 @@ from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
 from sqlalchemy import select, insert, delete
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import jwt
 import uuid
 import os
-from project.database.database import *
+from project.database.database import AsyncSession
 from .models import *
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="sign-in")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 TOKEN_EXPIRES = 30
-session = Session(engine)
 
 password_hash = PasswordHash.recommended()
 
 def verify_password(raw_password, hashed_password):
     return password_has.verify(raw_password, hashed_password)
 
-def get_user(email:str):
-    row = session.execute(select(UserPG).where(UserPG.email == email)).first()
+async def get_user(email:str, session:AsyncSession):
+    row = await session.execute(select(UserPG).where(UserPG.email == email)).first()
     if row:
         user_dict = {"user_id":row[0].user_id,
                      "username":row[0].username,
@@ -36,7 +36,7 @@ def get_user(email:str):
                      }
         return DatabaseUser(**user_dict)
 
-    raise HTTPException(status_code=400, detail="User doesn't exit")
+    return None
 
 def authenticate_user(email:str, password:str):
     user = get_user(email)

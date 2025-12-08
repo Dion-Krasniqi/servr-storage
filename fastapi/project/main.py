@@ -9,10 +9,15 @@ import httpx
 
 from project.auth.models import *
 from project.auth.methods import *
+from project.database.database import AsyncSessionLocal
+
 
 load_dotenv()
 app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="sign-in")
+async def get_db():
+    async with AsyncSessionLocal as session:
+        yield session
 
 #minio_endpoint = ""
 #minio_client = Minio()
@@ -22,7 +27,7 @@ async def root():
     return {"message":"This is root"}
 
 @app.get("/sign-in")
-async def login_user(form: SignInForm)->Token:
+async def login_user(form: SignInForm, session: AsyncSession=Depends(get_db))->Token:
     user = authenticated_user(form.email, form.password)
     if not user:
         raise HTTPException(status_code=400,
