@@ -11,3 +11,9 @@ services:
       - ./init-db:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
+
+  rust:
+    image: rust-worker
+    container_name: rst-container
+    ports:
+      - "8000":"8000"
