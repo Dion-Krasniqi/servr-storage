@@ -4,3 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = "0.8.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0.228", features = ["derive"] }
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "uuid", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenv = "0.15"
+uuid = { version = "1.19.0", features = ["v4", "serde"] }
