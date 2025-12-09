@@ -2,7 +2,7 @@ use axum::{ routing::post, Router };
 use sqlx::postgres::PgPoolOptions;
 mod files;
 mod models;
-use files::methods::get_files;
+use files::methods::{get_files, create_folder};
 
 
 #[tokio::main]
@@ -14,7 +14,7 @@ async fn main() {
     .await
     .expect("Failed to create pool");
 
-    let app = Router::new().route("/get-files", post(get_files)).with_state(pool.clone());
+    let app = Router::new().route("/get-files", post(create_folder)).with_state(pool.clone());
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
     axum::serve(listener, app)

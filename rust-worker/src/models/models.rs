@@ -16,7 +16,7 @@ pub enum FileType { Media, Document, Other, Folder }
 pub struct DatabaseFile {
     pub file_id: Uuid,
     pub owner_id: Uuid,
-    pub parent_id: Uuid,
+    pub parent_id: Option<Uuid>,
     pub file_name: String,
     pub extension: Option<String>,
     pub size: Option<f32>,
@@ -24,5 +24,13 @@ pub struct DatabaseFile {
     pub url: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub last_modified: Option<DateTime<Utc>>,
-    pub shared_with: Vec<String>,
+    pub shared_with: Vec<Uuid>,
+}
+
+// uploading
+#[derive(Debug,Deserialize)]
+pub struct CreateFolderForm {
+    pub folder_name: String,
+    pub owner_id: String,
+    pub parent_id: String,
 }
