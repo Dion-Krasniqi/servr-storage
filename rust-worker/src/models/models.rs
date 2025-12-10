@@ -7,8 +7,9 @@ pub struct OwnerId {
     pub owner_id: String,
 }
 
-#[derive(Debug, Serialize, sqlx::Type)]
+#[derive(Debug, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name="FILETYPE", rename_all="lowercase")]
+#[serde(rename_all = "lowercase")] //for deserializing
 pub enum FileType { Media, Document, Other, Folder }
 
 //add deserialize aswell
@@ -33,4 +34,14 @@ pub struct CreateFolderForm {
     pub folder_name: String,
     pub owner_id: String,
     pub parent_id: String,
+}
+
+#[derive(Debug,Deserialize)]
+pub struct CreateFileForm {
+    pub file_name: String,
+    pub owner_id: String,
+    pub parent_id: String,
+    pub file_type: FileType,
+    pub extension: String,
+    pub size: f32,
 }
