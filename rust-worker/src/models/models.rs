@@ -35,13 +35,3 @@ pub struct CreateFolderForm {
     pub owner_id: String,
     pub parent_id: String,
 }
-
-#[derive(Debug,Deserialize)]
-pub struct CreateFileForm {
-    pub file_name: String,
-    pub owner_id: String,
-    pub parent_id: String,
-    pub file_type: FileType,
-    pub extension: String,
-    pub size: f32,
-}
