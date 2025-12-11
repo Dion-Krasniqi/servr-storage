@@ -35,3 +35,12 @@ pub struct CreateFolderForm {
     pub owner_id: String,
     pub parent_id: String,
 }
+
+//sharing
+
+//deleting
+#[derive(Debug,Deserialize)]
+pub struct DeleteFileForm {
+    pub owner_id: String, //lowkey not
+    pub file_id: String,
+}

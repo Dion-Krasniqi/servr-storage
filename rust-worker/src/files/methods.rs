@@ -5,7 +5,7 @@ use uuid::Uuid;
 use chrono::Utc;
 use bytes::Bytes;
 
-use crate::models::{DatabaseFile, OwnerId, CreateFolderForm, FileType};
+use crate::models::{DatabaseFile, OwnerId, CreateFolderForm, FileType, DeleteFileForm};
 
 pub async fn get_files(pool: extract::State<PgPool>,
                        payload: extract::Json<OwnerId>)->Result<Json<Vec<DatabaseFile>>, String> {
@@ -126,4 +126,28 @@ pub async fn upload_file(pool: extract::State<PgPool>,
       };
 
   Ok(Json(success.to_string()))
+}
+
+pub async fn delete_file(pool: extract::State<PgPool>,
+                         payload: extract::Json<DeleteFileForm>)->Result<Json<String>,String> {
+
+    let owner_id = match Uuid::parse_str(&payload.owner_id) {
+        Ok(id) => id,
+        Err(e) => return Err(format!("Failed to parse owner id: {}", e))
+    };
+
+    let file_id = match Uuid::parse_str(&payload.file_id) {
+        Ok(id) => id,
+        Err(e) => return Err(format!("Failed to parse file id: {}", e))
+    };
+
+    let success = match sqlx::query("DELETE FROM files
+                                     WHERE file_id = ($1);")
+        .bind(&file_id)
+        .execute(&pool.0).await {
+            Ok(_) => "File Deleted",
+            Err(e) => return Err(format!("Failed to delete folder: {}", e)),
+        };
+
+    Ok(Json(success.to_string()))
 }
