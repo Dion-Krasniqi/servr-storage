@@ -4,11 +4,23 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use chrono::Utc;
 use bytes::Bytes;
+use aws_sdk_s3 as s3;
+use axum::extract::State;
 
-use crate::models::{DatabaseFile, OwnerId, CreateFolderForm, FileType, DeleteFileForm};
+use crate::models::{DatabaseFile, OwnerId, CreateFolderForm, FileType, DeleteFileForm, AppState};
 
-pub async fn get_files(pool: extract::State<PgPool>,
+pub async fn get_files(State(state): State<AppState>,
                        payload: extract::Json<OwnerId>)->Result<Json<Vec<DatabaseFile>>, String> {
+    let client = &state.client;
+    let pool = &state.pool;
+    let list_objects_output = match client.list_objects_v2().bucket("test-bucket").send().await {
+        Ok(res) => res,
+        Err(e) => return Err(format!("Error {}", e)),
+    };
+    for thingy in list_objects_output.contents() {
+        println!("size: {}", thingy.size().unwrap_or_default());
+    };
+
     let owner_id = match Uuid::parse_str(&payload.owner_id) {
         Ok(id) => id,
         Err(e) => return Err(format!("Failed to get owner id: {}", e)),
@@ -16,11 +28,13 @@ pub async fn get_files(pool: extract::State<PgPool>,
 
     let files = match sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id=$1")
         .bind(&owner_id)
-        .fetch_all(&pool.0)
+        .fetch_all(pool)
         .await {
             Ok(f) => f,
             Err(e) => return Err(format!("Database error: {}", e)),
         };
+
+    
     Ok(Json(files))
 }
 

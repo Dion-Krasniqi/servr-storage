@@ -1,6 +1,8 @@
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use aws_sdk_s3 as s3;
+use sqlx::PgPool;
 
 #[derive(Deserialize)]
 pub struct OwnerId {
@@ -43,4 +45,11 @@ pub struct CreateFolderForm {
 pub struct DeleteFileForm {
     pub owner_id: String, //lowkey not
     pub file_id: String,
+}
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: PgPool,
+    pub client: s3::Client,
+    
 }

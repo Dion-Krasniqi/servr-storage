@@ -14,3 +14,6 @@ dotenv = "0.15"
 dotenv_codegen = "0.15.0"
 uuid = { version = "1.19.0", features = ["v4", "serde"] }
 bytes = "1.11.0"
+
+aws-config = { version = "1.1.7", feautres = ["behavior-version-latest"] }
+aws-sdk-s3 = "1.117.0"
