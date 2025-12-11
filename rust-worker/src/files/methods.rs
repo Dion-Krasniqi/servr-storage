@@ -142,8 +142,9 @@ pub async fn delete_file(pool: extract::State<PgPool>,
     };
 
     let success = match sqlx::query("DELETE FROM files
-                                     WHERE file_id = ($1);")
+                                     WHERE file_id = ($1) AND owner_id = ($2);")//maybe some other way to secure
         .bind(&file_id)
+        .bind(&owner_id)
         .execute(&pool.0).await {
             Ok(_) => "File Deleted",
             Err(e) => return Err(format!("Failed to delete folder: {}", e)),

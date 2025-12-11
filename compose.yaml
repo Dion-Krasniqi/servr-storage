@@ -17,3 +17,9 @@ services:
     container_name: rst-container
     ports:
       - "8000":"8000"
+
+  fastapi:
+    image:
+    container_name: fastapi-container
+    ports:
+      - "8000":"80"
