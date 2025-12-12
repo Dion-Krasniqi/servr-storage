@@ -5,25 +5,59 @@ use uuid::Uuid;
 use chrono::Utc;
 use bytes::Bytes;
 use aws_sdk_s3 as s3;
+use aws_sdk_s3::error::ProvideErrorMetadata;
 use axum::extract::State;
+use failure;
+use axum::response::IntoResponse;
 
 use crate::models::{DatabaseFile, OwnerId, CreateFolderForm, FileType, DeleteFileForm, AppState};
 
-pub async fn get_files(State(state): State<AppState>,
-                       payload: extract::Json<OwnerId>)->Result<Json<Vec<DatabaseFile>>, String> {
+pub async fn check_bucket(client: &s3::Client, bucket_name: &str)->Result<bool, s3::Error>{
+    match client.head_bucket().bucket(bucket_name).send().await {
+        Ok(_) => Ok(true),
+        Err(e) => {
+            if let Some(code) = e.code() {
+                if code == "NotFound" {
+                    return Ok(false);
+                }
+            }
+            Err(e.into())
+        }
+    }
+}
+
+// just until custom error type
+pub async fn get_files(State(state): State<AppState>, payload: Json<OwnerId>) -> impl IntoResponse {
+        match _get_files(&state, payload).await {
+                    Ok(json) => json.into_response(),
+                            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+                                }
+}
+
+
+
+//async fn _get_files(State(state): State<AppState>,
+//                       payload: extract::Json<OwnerId>)->Result<Json<Vec<DatabaseFile>>, failure::Error> {
+async fn _get_files(state: &AppState, payload: Json<OwnerId>) -> Result<Json<Vec<DatabaseFile>>, failure::Error> {
     let client = &state.client;
+    if (check_bucket(&client, &payload.owner_id)).await? {
+        println!("Gyatt");
+    } else {
+      return Err(failure::err_msg("User bucket not found"));//Err("User bucket not found");
+    };
     let pool = &state.pool;
-    let list_objects_output = match client.list_objects_v2().bucket("test-bucket").send().await {
+    // still for fetching from db
+    let owner_id = match Uuid::parse_str(&payload.owner_id) { 
+        Ok(id) => id,
+        Err(e) => return Err(e.into())//Err(format!("Failed to get owner id: {}", e)),
+    };
+    
+    let list_objects_output = match client.list_objects_v2().bucket(&payload.owner_id).send().await {
         Ok(res) => res,
-        Err(e) => return Err(format!("Error {}", e)),
+        Err(e) => return Err(e.into())//Err(format!("Error {}", e)),
     };
     for thingy in list_objects_output.contents() {
         println!("size: {}", thingy.size().unwrap_or_default());
-    };
-
-    let owner_id = match Uuid::parse_str(&payload.owner_id) {
-        Ok(id) => id,
-        Err(e) => return Err(format!("Failed to get owner id: {}", e)),
     };
 
     let files = match sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id=$1")
@@ -31,7 +65,7 @@ pub async fn get_files(State(state): State<AppState>,
         .fetch_all(pool)
         .await {
             Ok(f) => f,
-            Err(e) => return Err(format!("Database error: {}", e)),
+            Err(e) => return Err(e.into()) //Err(format!("Database error: {}", e)),
         };
 
     
