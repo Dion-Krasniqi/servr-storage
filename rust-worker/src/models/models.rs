@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use aws_sdk_s3 as s3;
 use sqlx::PgPool;
 use axum::{response::IntoResponse, http::StatusCode};
+use axum_extra::extract::multipart::MultipartError;
 use failure;
 
 #[derive(Deserialize)]
@@ -24,12 +25,16 @@ pub struct DatabaseFile {
     pub parent_id: Option<Uuid>,
     pub file_name: String,
     pub extension: Option<String>,
-    pub size: Option<f32>,
+    pub size: i64,
     pub file_type: FileType,
-    pub url: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub last_modified: Option<DateTime<Utc>>,
     pub shared_with: Vec<Uuid>,
+}
+#[derive(Debug, Serialize)]
+pub struct FileResponse {
+    pub file: DatabaseFile,
+    pub url: String,
 }
 
 // uploading
@@ -73,12 +78,16 @@ impl From<s3::Error> for GetFilesError {
         GetFilesError::S3Error(e)
     }
 }
-
 impl From<failure::Error> for GetFilesError {
     fn from(e: failure::Error) -> Self {
         GetFilesError::InternalError(e.to_string())
     }
 
+}
+impl From<MultipartError> for GetFilesError {
+    fn from(e: MultipartError) -> Self {
+        GetFilesError::InternalError(e.to_string())
+    }
 }
 //for axum
 impl IntoResponse for GetFilesError {

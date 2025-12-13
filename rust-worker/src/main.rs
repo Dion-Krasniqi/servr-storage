@@ -14,8 +14,10 @@ use crate::models::{AppState};
 
 #[tokio::main]
 async fn main() -> Result<(), s3::Error> {
-    let DATABASE_URL = dotenv!("DATABASE_URl")//"postgresql://postgres:dinqja123@localhost/servr_db";
-    let pool = PgPoolOptions::newI()
+    //let DATABASE_URL = dotenv!("DATABASE_URL");
+    let DATABASE_URL = "postgresql://postgres:dinqja123@localhost/servr_db";
+    
+    let pool = PgPoolOptions::new()
     .max_connections(5)
     .connect(&DATABASE_URL)
     .await
@@ -41,7 +43,7 @@ async fn main() -> Result<(), s3::Error> {
     let state = AppState {pool, client};
     let app = Router::new()//.route("/create-folder",post(create_folder))
         .route("/get-files", post(get_files))
-        //.route("/upload-file", post(upload_file))
+        .route("/upload-file", post(upload_file))
         //.route("/delete-file", post(delete_file))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

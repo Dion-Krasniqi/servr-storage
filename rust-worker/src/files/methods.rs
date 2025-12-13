@@ -113,7 +113,7 @@ pub async fn create_folder(pool: extract::State<PgPool>,
         .bind(&user_id)
         .bind(&parent_id)
         .bind(&folder_name)
-        .bind(0_f32)
+        .bind(1)
         .bind(FileType::Folder)
         .bind(&created_at)
         .bind(&last_modified)
@@ -127,63 +127,80 @@ pub async fn create_folder(pool: extract::State<PgPool>,
 }
 
 //2mb limit 
-pub async fn upload_file(pool: extract::State<PgPool>,
-                         mut payload: Multipart)->Result<Json<String>, String> {
-  let mut data: Bytes;
+pub async fn upload_file(State(state): State<AppState>,
+                         mut payload: Multipart)->Result<Json<String>, GetFilesError> {
+  let mut data = Bytes::new();
+  let mut filename = String::new(); 
+  let mut content_type = String::new();
   let mut user_id = String::new();
   let mut payload_parent_id = String::new();
-  while let Some(field) = payload.next_field().await.unwrap() {
-      let name = field.name().unwrap().to_string();
-      if name == "file" {
-        data = field.bytes().await.unwrap();
-        //
-      } else if name == "user_id" {
-        user_id = field.text().await.unwrap().to_string();
-        // let owner_id = match Uuid:parse_str...
-      } else if name == "parent_id" {
-        payload_parent_id = field.text().await.unwrap().to_string();
-        // same stuff
+
+  while let Some(field) = payload.next_field().await? {
+      match field.name() {
+      Some("file") => {
+        filename = field.file_name().unwrap_or("unknown").to_string();
+        // app/octet - unknown generic type
+        content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+        data = field.bytes().await?;
+      },
+      Some("user_id") => {
+        user_id = field.text().await?;
+      },
+      Some("parent_id") => {
+        payload_parent_id = field.text().await?;
+      },
+      _ => {}
       }
   };
-  let owner_id = match Uuid::parse_str(&user_id) {
-    Ok(id) => Some(id),
-    Err(e) => return Err(format!("Failed to parse user id: {}", e)),
+  let client = &state.client;
+  if (check_bucket(&client, &user_id)).await? {
+    //
+  } else {
+    return Err(GetFilesError::NotFound("User bucket not found".to_string()));
   };
+
+  client.put_object().bucket(&user_id).key(&filename).body(data.into())
+      .content_type(&content_type)
+      .send()
+      .await
+      .map_err(|e| GetFilesError::S3Error(e.into()))?;
+
+  let owner_id = Uuid::parse_str(&user_id)
+      .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
 
   let parent_id = match payload_parent_id.is_empty() {
         true => None,
-        false => match Uuid::parse_str(&payload_parent_id) {
-            Ok(id) => Some(id),
-            Err(e) => return Err(format!("Failed to parse parent id: {}", e)),
-        }
+        false => Some(Uuid::parse_str(&payload_parent_id)
+            .map_err(|e| GetFilesError::InternalError(e.to_string()))?),
   };
-
+  
   let file_id = Uuid::new_v4();
-  let file_size = 1;
-  let file_name = "Name";
+  let file_size = data.len();
   let created_at = Some(Utc::now());
   let last_modified = Some(Utc::now());
   let shared_with: Vec<Uuid> = Vec::new();
+  
   let extension = ".png";
   let file_type = "Type";
+  
+  let pool = &state.pool;
   let success = match sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
                                    size, extension, file_type, created_at, last_modified, shared_with)
                                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
       .bind(&file_id)
       .bind(&owner_id)
       .bind(&parent_id)
-      .bind(&file_name)
+      .bind(&filename)
       .bind(&file_size)
       .bind(&extension)
       .bind(&file_type)
       .bind(&created_at)
       .bind(&last_modified)
       .bind(shared_with)
-      .execute(&pool.0).await {
+      .execute(pool).await {
             Ok(_) => "File Uploaded",
-            Err(e) => return Err(format!("Failed to upload file {}. Error: {}", &file_name, e)),
+            Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
       };
-
   Ok(Json(success.to_string()))
 }
 
