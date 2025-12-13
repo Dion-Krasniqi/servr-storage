@@ -4,8 +4,13 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use chrono::Utc;
 use bytes::Bytes;
+use std::time::Duration;
+
+// clean these imports us
 use aws_sdk_s3 as s3;
 use aws_sdk_s3::error::ProvideErrorMetadata;
+use aws_sdk_s3::presigning::PresigningConfig;
+
 use axum::extract::State;
 use failure;
 use axum::response::IntoResponse;
@@ -18,7 +23,7 @@ use crate::models::{DatabaseFile,
                     AppState,
                     GetFilesError};
 
-pub async fn check_bucket(client: &s3::Client, bucket_name: &str)->Result<bool, s3::Error>{
+async fn check_bucket(client: &s3::Client, bucket_name: &str)->Result<bool, s3::Error>{
     match client.head_bucket().bucket(bucket_name).send().await {
         Ok(_) => Ok(true),
         Err(e) => {
@@ -31,40 +36,50 @@ pub async fn check_bucket(client: &s3::Client, bucket_name: &str)->Result<bool, 
         }
     }
 }
+async fn get_presigned_url(client: &s3::Client, bucket_name: &str, object_key: &str)->Result<String, failure::Error> {
+    let expires_in = Duration::from_secs(120);
+    let presigned_request = client.get_object()
+                                  .bucket(bucket_name)
+                                  .key(object_key)
+                                  .presigned(PresigningConfig::expires_in(expires_in)?)
+                                  .await?;
+    Ok(presigned_request.uri().to_string())
+}
 
 pub async fn get_files(State(state): State<AppState>,
                        payload: extract::Json<OwnerId>) -> Result<Json<Vec<DatabaseFile>>, GetFilesError> {
     
     let client = &state.client;
     if (check_bucket(&client, &payload.owner_id)).await? {
-        println!("Gyatt");
+        //
     } else {
-      return Err(GetFilesError::UserBucketDoesntExist);//Err("User bucket not found");
+      return Err(GetFilesError::NotFound("User bucket not found".to_string()));
     };
-    let pool = &state.pool;
     // still for fetching from db
-    let owner_id = match Uuid::parse_str(&payload.owner_id) { 
-        Ok(id) => id,
-        Err(e) => return Err(GetFilesError::UserIdError)//Err(format!("Failed to get owner id: {}", e)),
-    };
+    let owner_id = Uuid::parse_str(&payload.owner_id) 
+        .map_err(|_| GetFilesError::InternalError("Failed to get parse user id".to_string()))?;
     
     let list_objects_output = match client.list_objects_v2().bucket(&payload.owner_id).send().await {
         Ok(res) => res,
-        Err(e) => return Err(GetFilesError::UserBucketDoesntExist)//Err(format!("Error {}", e)),
+        Err(e) => return Err(GetFilesError::InternalError("Failed to get user objects".to_string())),
     };
     for thingy in list_objects_output.contents() {
-        println!("size: {}", thingy.size().unwrap_or_default());
+        let key = thingy.key().unwrap();
+        let object_url = get_presigned_url(client, &payload.owner_id, key).await?;
+        println!("Url: {}", object_url);
     };
 
+    let pool = &state.pool;
     let files = match sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id=$1")
         .bind(&owner_id)
         .fetch_all(pool)
         .await {
             Ok(f) => f,
-            Err(e) => return Err(GetFilesError::InternalError) //Err(format!("Database error: {}", e)),
-        };
-
-    
+            Err(e) => return Err(GetFilesError::InternalError(/*"Failed to fetch files from database"*/e.to_string())),
+    };
+    for file in &files {
+        println!("{}",file.file_id);
+    };
     Ok(Json(files))
 }
 

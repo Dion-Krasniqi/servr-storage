@@ -14,8 +14,8 @@ use crate::models::{AppState};
 
 #[tokio::main]
 async fn main() -> Result<(), s3::Error> {
-    let DATABASE_URL = "postgresql://postgres:dinqja123@localhost/servr_db"; //dotenv!("DATABASE_URL");
-    let pool = PgPoolOptions::new()
+    let DATABASE_URL = dotenv!("DATABASE_URl")//"postgresql://postgres:dinqja123@localhost/servr_db";
+    let pool = PgPoolOptions::newI()
     .max_connections(5)
     .connect(&DATABASE_URL)
     .await

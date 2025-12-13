@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use aws_sdk_s3 as s3;
 use sqlx::PgPool;
 use axum::{response::IntoResponse, http::StatusCode};
-//use failure;
+use failure;
 
 #[derive(Deserialize)]
 pub struct OwnerId {
@@ -61,20 +61,24 @@ pub struct AppState {
 #[derive(Debug)]
 pub enum GetFilesError {
     S3Error(s3::Error),
-    
-    UserIdError,
+    // maybe ref
+    InternalError(String),
+    NotFound(String),    
 
-    FileIdError,
-
-    UserBucketDoesntExist,
     
-    InternalError,
 }
 
 impl From<s3::Error> for GetFilesError {
     fn from(e: s3::Error) -> Self {
         GetFilesError::S3Error(e)
     }
+}
+
+impl From<failure::Error> for GetFilesError {
+    fn from(e: failure::Error) -> Self {
+        GetFilesError::InternalError(e.to_string())
+    }
+
 }
 //for axum
 impl IntoResponse for GetFilesError {
@@ -84,9 +88,14 @@ impl IntoResponse for GetFilesError {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "S3 error".to_string(),
                 ).into_response(),
-            (_) => (
-                    StatusCode::BAD_REQUEST,
-                    "General Error".to_string()
+                //split this bcuz currently too broad
+            GetFilesError::InternalError(msg) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    msg,
+                ).into_response(),
+            GetFilesError::NotFound(msg) => (
+                    StatusCode::NOT_FOUND,
+                    msg,
                 ).into_response(),
         }
     }
