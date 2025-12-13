@@ -58,9 +58,17 @@ async def upload_file(file: UploadFile=File(...)):
 
 @app.get("/get-files")
 async def get_files():
-    return {"message":"get-files"}
-@app.post("/share-file")
-async def share_file():
-    return {"message":"share-file"}
+    async with httpx.AsyncClient() as client:
+        files = await client.post('http://127.0.0.1:3000/get-files', 
+                          json={
+                               "owner_id":"50d16e49-5044-462e-afb9-63365148ac94", 
+                              },)
+    return files.json()
 
+@app.post("/delete-file")
+async def delete_file():
+    async with httpx.AsyncClient() as client:
+        await client.post('http://127.0.0.1:3000/delete-file', json={
+                              "owner_id":"50d16e49-5044-462e-afb9-63365148ac94",
+                              "file_id":"0748c7ba-3aea-48e3-8722-8b49b4ed0879"},) 
 

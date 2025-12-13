@@ -15,7 +15,8 @@ use axum::extract::State;
 use failure;
 use axum::response::IntoResponse;
 
-use crate::models::{DatabaseFile, 
+use crate::models::{DatabaseFile,
+                    FileResponse,
                     OwnerId, 
                     CreateFolderForm, 
                     FileType, 
@@ -47,8 +48,9 @@ async fn get_presigned_url(client: &s3::Client, bucket_name: &str, object_key: &
 }
 
 pub async fn get_files(State(state): State<AppState>,
-                       payload: extract::Json<OwnerId>) -> Result<Json<Vec<DatabaseFile>>, GetFilesError> {
-    
+                       payload: extract::Json<OwnerId>) -> Result<Json<Vec<FileResponse>>,
+                                                                  GetFilesError> {
+    println!("ran");    
     let client = &state.client;
     if (check_bucket(&client, &payload.owner_id)).await? {
         //
@@ -63,24 +65,36 @@ pub async fn get_files(State(state): State<AppState>,
         Ok(res) => res,
         Err(e) => return Err(GetFilesError::InternalError("Failed to get user objects".to_string())),
     };
-    for thingy in list_objects_output.contents() {
-        let key = thingy.key().unwrap();
+    /*    let key = thingy.key().unwrap();
         let object_url = get_presigned_url(client, &payload.owner_id, key).await?;
-        println!("Url: {}", object_url);
-    };
-
+    */
     let pool = &state.pool;
-    let files = match sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id=$1")
+    let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id=$1")
         .bind(&owner_id)
         .fetch_all(pool)
-        .await {
-            Ok(f) => f,
-            Err(e) => return Err(GetFilesError::InternalError(/*"Failed to fetch files from database"*/e.to_string())),
-    };
-    for file in &files {
-        println!("{}",file.file_id);
-    };
-    Ok(Json(files))
+        .await
+        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    let mut response = Vec::with_capacity(files.len());
+    for file in files {
+        let url = "".to_string();
+        response.push(FileResponse {
+            /*file_id: file.file_id,
+            owner_id: file.owner_id,
+            parent_id: file.parent_id,
+            file_name: file.file_name,
+            extension: file.extension,
+            size: file.size,
+            file_type: file.file_type,
+            url: url,
+            create_at: file.created_at,
+            last_modified: file.last_modified,
+            shared_with: file.shared_with,*/
+            file: file,
+            url:url,
+        });
+    }
+    println!("Length {}",response.len());
+    Ok(Json(response))
 }
 
 pub async fn create_folder(pool: extract::State<PgPool>,
@@ -160,9 +174,15 @@ pub async fn upload_file(State(state): State<AppState>,
   };
 
   // ehhh
-  let file_size = data.len() as i64;
-  
-  client.put_object().bucket(&user_id).key(&filename).body(data.into())
+  let file_size = data.len() as i64; 
+  let file_id = Uuid::new_v4();
+
+  let extension = std::path::Path::new(&filename)
+      .extension()
+      .and_then(|s| s.to_str())
+      .unwrap_or("");
+  let s3_name = file_id.to_string() + "." + &extension;                        
+  client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
       .content_type(&content_type)
       .send()
       .await
@@ -177,16 +197,10 @@ pub async fn upload_file(State(state): State<AppState>,
             .map_err(|e| GetFilesError::InternalError(e.to_string()))?),
   };
   
-  let file_id = Uuid::new_v4();
   let created_at = Some(Utc::now());
   let last_modified = Some(Utc::now());
   let shared_with: Vec<Uuid> = Vec::new();
   
-  let extension = std::path::Path::new(&filename)
-      .extension()
-      .and_then(|s| s.to_str())
-      .unwrap_or("");
-
   let file_type = match content_type.as_str() {
       ctype if ctype.starts_with("image/") => FileType::Media,
       ctype if ctype.starts_with("video/") => FileType::Media,
@@ -229,7 +243,7 @@ pub async fn upload_file(State(state): State<AppState>,
 
 pub async fn delete_file(State(state): State<AppState>,
                          payload: extract::Json<DeleteFileForm>)->Result<Json<String>, GetFilesError> {
-
+    println!("Ran");
     let file_id = Uuid::parse_str(&payload.file_id) 
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     
@@ -242,14 +256,21 @@ pub async fn delete_file(State(state): State<AppState>,
     let pool = &state.pool;
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    let success = match sqlx::query("DELETE FROM files
-                                     WHERE file_id = ($1) AND owner_id = ($2);")//maybe some other way to secure
+    /*let extension: String= match sqlx::query_scalar("DELETE FROM files
+                                     WHERE file_id = ($1) AND owner_id = ($2)
+                                     RETURNING extension;")//maybe some other way to secure
         .bind(&file_id)
         .bind(&owner_id)
-        .execute(pool).await {
-            Ok(_) => "File Deleted",
+        .fetch_one(pool).await {
+            Ok(ext) => ext,
             Err(e) => return Err(GetFilesError::InternalError("Database delete failed".to_string())),
-        };
+    };*/
+    let success = match client.delete_object().bucket(&payload.owner_id).key(payload.file_id.clone() + ".jpg"/* + &extension*/)
+        .send().await {
+        Ok(_) => format!("Deleted file"),
+        Err(e) => return Err(GetFilesError::InternalError("Failed to delete object file".to_string())),
+
+    };
 
     Ok(Json(success.to_string()))
 }
