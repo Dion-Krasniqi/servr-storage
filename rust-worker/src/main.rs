@@ -44,7 +44,7 @@ async fn main() -> Result<(), s3::Error> {
     let app = Router::new()//.route("/create-folder",post(create_folder))
         .route("/get-files", post(get_files))
         .route("/upload-file", post(upload_file))
-        //.route("/delete-file", post(delete_file))
+        .route("/delete-file", post(delete_file))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 

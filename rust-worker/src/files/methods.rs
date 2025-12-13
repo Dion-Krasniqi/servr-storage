@@ -159,6 +159,9 @@ pub async fn upload_file(State(state): State<AppState>,
     return Err(GetFilesError::NotFound("User bucket not found".to_string()));
   };
 
+  // ehhh
+  let file_size = data.len() as i64;
+  
   client.put_object().bucket(&user_id).key(&filename).body(data.into())
       .content_type(&content_type)
       .send()
@@ -175,23 +178,34 @@ pub async fn upload_file(State(state): State<AppState>,
   };
   
   let file_id = Uuid::new_v4();
-  let file_size = data.len();
   let created_at = Some(Utc::now());
   let last_modified = Some(Utc::now());
   let shared_with: Vec<Uuid> = Vec::new();
   
-  let extension = ".png";
-  let file_type = "Type";
+  let extension = std::path::Path::new(&filename)
+      .extension()
+      .and_then(|s| s.to_str())
+      .unwrap_or("");
+
+  let file_type = match content_type.as_str() {
+      ctype if ctype.starts_with("image/") => FileType::Media,
+      ctype if ctype.starts_with("video/") => FileType::Media,
+      ctype if ctype.starts_with("audio/") => FileType::Media,
+      ctype if ctype.starts_with("text/") => FileType::Document,
+      "application/pdf" => FileType::Document,
+      _ => FileType::Other,
+
+  };
   
   let pool = &state.pool;
-  let success = match sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
+  match sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
                                    size, extension, file_type, created_at, last_modified, shared_with)
-                                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
+                                   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
       .bind(&file_id)
       .bind(&owner_id)
       .bind(&parent_id)
       .bind(&filename)
-      .bind(&file_size)
+      .bind(file_size)
       .bind(&extension)
       .bind(&file_type)
       .bind(&created_at)
@@ -201,29 +215,40 @@ pub async fn upload_file(State(state): State<AppState>,
             Ok(_) => "File Uploaded",
             Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
       };
+  let success = match sqlx::query("UPDATE TABLE users
+                                   SET storage_used = storaged_used + $1
+                                   WHERE user_id = $2")
+      .bind(file_size)
+      .bind(&owner_id)
+      .execute(pool).await {
+            Ok(_) => "File Uploaded Successfully",
+            Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
+  };
   Ok(Json(success.to_string()))
 }
 
-pub async fn delete_file(pool: extract::State<PgPool>,
-                         payload: extract::Json<DeleteFileForm>)->Result<Json<String>,String> {
+pub async fn delete_file(State(state): State<AppState>,
+                         payload: extract::Json<DeleteFileForm>)->Result<Json<String>, GetFilesError> {
 
-    let owner_id = match Uuid::parse_str(&payload.owner_id) {
-        Ok(id) => id,
-        Err(e) => return Err(format!("Failed to parse owner id: {}", e))
+    let file_id = Uuid::parse_str(&payload.file_id) 
+        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    
+    let client = &state.client;
+    if (check_bucket(&client, &payload.owner_id)).await? {
+        //
+    } else {
+        return Err(GetFilesError::NotFound("User bucket not found".to_string()));
     };
-
-    let file_id = match Uuid::parse_str(&payload.file_id) {
-        Ok(id) => id,
-        Err(e) => return Err(format!("Failed to parse file id: {}", e))
-    };
-
+    let pool = &state.pool;
+    let owner_id = Uuid::parse_str(&payload.owner_id)
+        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     let success = match sqlx::query("DELETE FROM files
                                      WHERE file_id = ($1) AND owner_id = ($2);")//maybe some other way to secure
         .bind(&file_id)
         .bind(&owner_id)
-        .execute(&pool.0).await {
+        .execute(pool).await {
             Ok(_) => "File Deleted",
-            Err(e) => return Err(format!("Failed to delete folder: {}", e)),
+            Err(e) => return Err(GetFilesError::InternalError("Database delete failed".to_string())),
         };
 
     Ok(Json(success.to_string()))

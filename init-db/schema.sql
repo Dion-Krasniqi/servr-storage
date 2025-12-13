@@ -3,7 +3,8 @@ CREATE TABLE users (
 	email VARCHAR UNIQUE NOT NULL,
 	hashed_password VARCHAR NOT NULL,
 	active BOOLEAN DEFAULT TRUE,
-	super_user BOOLEAN DEFAULT FALSE
+	super_user BOOLEAN DEFAULT FALSE,
+	storage_used BIGINT DEFAULT 0
 );
 
 CREATE TYPE FILETYPE as ENUM ('media', 'document', 'other', 'folder');
@@ -14,9 +15,8 @@ CREATE TABLE files (
        	parent_id UUID REFERENCES files(file_id) ON DELETE CASCADE,
 	file_name VARCHAR NOT NULL,
 	extension VARCHAR,
-	size BIGINT,
+	size BIGINT NOT NULL,
 	file_type FILETYPE NOT NULL,
-	url VARCHAR,
 	created_at TIMESTAMPTZ DEFAULT NOW(),
 	last_modified TIMESTAMPTZ DEFAULT NOW(),
 	shared_with UUID[]

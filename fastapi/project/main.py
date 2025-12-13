@@ -44,8 +44,18 @@ async def login_user(form: SignInForm, session: AsyncSession=Depends(get_db))->T
 async def create_user():
     return {"message":"sign-up"}
 @app.post("/upload-file")
-async def upload_file():
-    return {"message":"upload-file"}
+async def upload_file(file: UploadFile=File(...)):
+    async with httpx.AsyncClient() as client:
+        await client.post('http://127.0.0.1:3000/upload-file',
+                          files={
+                                "file":(file.filename, await file.read(), file.content_type),
+                          },
+                          data={
+                              "user_id":"50d16e49-5044-462e-afb9-63365148ac94",
+                              "parent_id":"",
+                          },
+                          )
+
 @app.get("/get-files")
 async def get_files():
     return {"message":"get-files"}
