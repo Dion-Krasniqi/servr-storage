@@ -7,6 +7,8 @@ from pwdlib import PasswordHash
 from sqlalchemy import select, insert, delete
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
+import boto3
+from botocore.exceptons import ClientError
 
 import jwt
 import uuid
@@ -38,8 +40,8 @@ async def get_user(email:str, session:AsyncSession):
 
     return None
 
-def authenticate_user(email:str, password:str):
-    user = get_user(email)
+def authenticate_user(email:str, password:str, session):
+    user = get_user(email, session)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
@@ -56,7 +58,7 @@ def create_access_token(data:dict, expires_delta: timedelta | None = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], session):
     credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                           detial="Couldn't validate credentials",
                                           headers={"WWW-Authenticate":"Bearer"})
@@ -68,7 +70,7 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         token_data = TokenData(email=email)
     except InvalidTokenError:
         raise credentials_exception
-    user = get_user(email=token_data.email)
+    user = get_user(email=token_data.email, session)
     if user is None:
         raise credentials_exception
     return user
@@ -92,11 +94,19 @@ async def create_new_user(username:str, email:str, password:str, session, client
                "storage_used":0,
                }
     try:
+        client.create_bucket(Bucket=new_id,#location maybe)
+    except Exception as e:
+        print(e)
+        return 0
+    try:
         session.execute(insert(UserPG).values(new_user))
         session.commit()
     except:
         session.rollback()
-        # s3 bucket check to delete
+        try:
+            client.delete_bucket(Bucket=new_id,)
+        except ClientError as e:
+            print("An eror occured ", error_code)
         raise HTTPException(status_code=502, detail="Error occured while creating user")
     
     return new_id
