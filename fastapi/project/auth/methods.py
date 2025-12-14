@@ -77,3 +77,26 @@ async def get_current_active_user(current_user: Annotated[DatabaseUser, Depends(
     if (current_user.active==False):
         raise HTTPException(status_code=400, detail="Inactive User")
     return current_user
+
+async def create_new_user(username:str, email:str, password:str, session, client):
+    user = get_user(email)
+    if user:
+        raise HTTPException(status_code=400, detail="User with this email exists")
+    new_id = uuid.uuid4()
+    new_user = {"user_id":new_id,
+               "username":username,
+               "email":email,
+               "hashed_password": password_hash.hash(password),
+               "active":True,
+               "super_user":False,
+               "storage_used":0,
+               }
+    try:
+        session.execute(insert(UserPG).values(new_user))
+        session.commit()
+    except:
+        session.rollback()
+        # s3 bucket check to delete
+        raise HTTPException(status_code=502, detail="Error occured while creating user")
+    
+    return new_id

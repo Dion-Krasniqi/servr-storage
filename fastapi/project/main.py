@@ -2,8 +2,8 @@ from typing import Annotated
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Form
 from fastapi.security import OAuth2PasswordBearer
-from minio import Minio
-from minio.error import S3Error
+#from minio import Minio
+#from minio.error import S3Error
 from dotenv import load_dotenv
 import httpx
 
@@ -31,7 +31,7 @@ async def login_user(form: SignInForm, session: AsyncSession=Depends(get_db))->T
     user = authenticated_user(form.email, form.password)
     if not user:
         raise HTTPException(status_code=400,
-                            detial="Incorrect email or password",
+                            detail="Incorrect email or password",
                             headers={"WWW-Authenticate":"Bearer"},
                             )
     access_token_expires = timedelta(minutes=TOKEN_EXPIRES)
@@ -41,12 +41,13 @@ async def login_user(form: SignInForm, session: AsyncSession=Depends(get_db))->T
     return Token(access_token=access_token, token_type="bearer")
 
 @app.post("/sign-up")
-async def create_user():
+async def create_user(form: SignUpForm, session: AsyncSession=Depends(get_db)):
+    user_id = await create_new_user(form.username, form.email, form.password, session)
     return {"message":"sign-up"}
 @app.post("/upload-file")
 async def upload_file(file: UploadFile=File(...)):
     async with httpx.AsyncClient() as client:
-        await client.post('http://127.0.0.1:3000/upload-file',
+        await client.post('http://rust:3000/upload-file',
                           files={
                                 "file":(file.filename, await file.read(), file.content_type),
                           },
@@ -59,7 +60,7 @@ async def upload_file(file: UploadFile=File(...)):
 @app.get("/get-files")
 async def get_files():
     async with httpx.AsyncClient() as client:
-        files = await client.post('http://127.0.0.1:3000/get-files', 
+        files = await client.post('http://rust:3000/get-files', 
                           json={
                                "owner_id":"50d16e49-5044-462e-afb9-63365148ac94", 
                               },)
@@ -68,7 +69,7 @@ async def get_files():
 @app.post("/delete-file")
 async def delete_file():
     async with httpx.AsyncClient() as client:
-        await client.post('http://127.0.0.1:3000/delete-file', json={
+        await client.post('http://rust:3000/delete-file', json={
                               "owner_id":"50d16e49-5044-462e-afb9-63365148ac94",
                               "file_id":"0748c7ba-3aea-48e3-8722-8b49b4ed0879"},) 
 

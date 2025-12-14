@@ -2,9 +2,8 @@ use axum::{ routing::post, Router };
 use sqlx::postgres::PgPoolOptions;
 use aws_sdk_s3 as s3;
 
-#[macro_use]
-extern crate dotenv_codegen;
-
+use dotenv::dotenv;
+use std::env;
 
 mod files;
 mod models;
@@ -14,17 +13,30 @@ use crate::models::{AppState};
 
 #[tokio::main]
 async fn main() -> Result<(), s3::Error> {
-    //let DATABASE_URL = dotenv!("DATABASE_URL");
-    let DATABASE_URL = "postgresql://postgres:dinqja123@localhost/servr_db";
+    dotenv().ok();
+    let DATABASE_URL = match env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(e) => "".to_string(),
+    };
+    //let DATABASE_URL = "postgresql://postgres:dinqja123@localhost/servr_db";
     
     let pool = PgPoolOptions::new()
     .max_connections(5)
     .connect(&DATABASE_URL)
     .await
     .expect("Failed to create pool");
-    let account_id = dotenv!("ACCOUNT_ID");
-    let access_key_id = dotenv!("ACCESS_KEY_ID");
-    let secret_access_key = dotenv!("SECRET_ACCESS_KEY");
+    let account_id = match env::var("ACCOUNT_ID"){
+        Ok(url) => url,
+        Err(e) => "".to_string(),
+    };
+    let access_key_id = match env::var("ACCESS_KEY_ID"){
+        Ok(url) => url,
+        Err(e) => "".to_string(),
+    };
+    let secret_access_key = match env::var("SECRET_ACCESS_KEY"){
+        Ok(url) => url,
+        Err(e) => "".to_string(),
+    };
 
     let config = aws_config::from_env()
         .endpoint_url(format!("https://{}.r2.cloudflarestorage.com" , account_id))
