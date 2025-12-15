@@ -8,7 +8,7 @@ from sqlalchemy import select, insert, delete
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 import boto3
-from botocore.exceptons import ClientError
+from botocore.exceptions import ClientError
 
 import jwt
 import uuid
@@ -27,7 +27,7 @@ def verify_password(raw_password, hashed_password):
     return password_has.verify(raw_password, hashed_password)
 
 async def get_user(email:str, session:AsyncSession):
-    row = await session.execute(select(UserPG).where(UserPG.email == email)).first()
+    row = (await session.execute(select(UserPG).where(UserPG.email == email))).first()
     if row:
         user_dict = {"user_id":row[0].user_id,
                      "username":row[0].username,
@@ -70,7 +70,7 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], sessio
         token_data = TokenData(email=email)
     except InvalidTokenError:
         raise credentials_exception
-    user = get_user(email=token_data.email, session)
+    user = get_user(session, email=token_data.email)
     if user is None:
         raise credentials_exception
     return user
@@ -80,13 +80,12 @@ async def get_current_active_user(current_user: Annotated[DatabaseUser, Depends(
         raise HTTPException(status_code=400, detail="Inactive User")
     return current_user
 
-async def create_new_user(username:str, email:str, password:str, session, client):
-    user = get_user(email)
+async def create_new_user(email:str, password:str, session, client):
+    user = await get_user(email,session)
     if user:
         raise HTTPException(status_code=400, detail="User with this email exists")
     new_id = uuid.uuid4()
     new_user = {"user_id":new_id,
-               "username":username,
                "email":email,
                "hashed_password": password_hash.hash(password),
                "active":True,
@@ -94,7 +93,7 @@ async def create_new_user(username:str, email:str, password:str, session, client
                "storage_used":0,
                }
     try:
-        client.create_bucket(Bucket=new_id,#location maybe)
+        client.create_bucket(Bucket=new_id,)#location maybe)
     except Exception as e:
         print(e)
         return 0

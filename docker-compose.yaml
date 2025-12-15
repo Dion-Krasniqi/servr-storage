@@ -30,6 +30,11 @@ services:
     build:
       context: ./fastapi
     container_name: fastapi-container
+    environment:
+      DATABASE_URL: ${DATABASE_URL_ASYNCPG}
+      ACCOUNT_ID: ${ACCOUNT_ID}
+      ACCESS_KEY_ID: ${ACCESS_KEY_ID}
+      SECRET_ACCESS_KEY: ${SECRET_ACCESS_KEY}
     ports:
       - "8001:80"
     depends_on:

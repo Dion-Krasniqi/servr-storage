@@ -11,8 +11,9 @@ from project.auth.models import *
 from project.auth.methods import *
 from project.database.database import AsyncSessionLocal
 import boto3
+import os
 
-load_dotenv()
+
 app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="sign-in")
 ACCOUNT_ID = os.getenv("ACCOUNT_ID");
@@ -20,13 +21,13 @@ ACCESS_KEY_ID = os.getenv("ACCESS_KEY_ID");
 SECRET_ACCESS_KEY = os.getenv("SECRET_ACCESS_KEY");
 
 s3 = boto3.resource('s3',
-                    endpoint_url = f"https:://{ACCOUNT_ID}.r2.cloudflarestorage.com" ,
+                    endpoint_url = f"https://{ACCOUNT_ID}.r2.cloudflarestorage.com" ,
                     aws_access_key_id = ACCESS_KEY_ID,
                     aws_secret_access_key = SECRET_ACCESS_KEY
                     )
 
-async def get_db():
-    async with AsyncSessionLocal as session:
+async def get_db() -> AsyncSession:
+    async with AsyncSessionLocal() as session:
         yield session
 
 #minio_endpoint = ""
@@ -36,7 +37,7 @@ async def get_db():
 async def root():
     return {"message":"This is root"}
 
-@app.get("/sign-in")
+@app.post("/sign-in")
 async def login_user(form: SignInForm, session: AsyncSession=Depends(get_db))->Token:
     user = authenticate_user(form.email, form.password, session)
     if not user:
@@ -52,7 +53,7 @@ async def login_user(form: SignInForm, session: AsyncSession=Depends(get_db))->T
 
 @app.post("/sign-up")
 async def create_user(form: SignUpForm, session: AsyncSession=Depends(get_db)):
-    user_id = await create_new_user(form.username, form.email, form.password, session, s3)
+    user_id = await create_new_user(form.email, form.password, session, s3)
     return {"message":"sign-up"}
 @app.post("/upload-file")
 async def upload_file(file: UploadFile=File(...)):

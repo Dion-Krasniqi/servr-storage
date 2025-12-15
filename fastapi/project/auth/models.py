@@ -11,7 +11,6 @@ class Base(DeclarativeBase):
 class UserPG(Base):
     __tablename__ = "users"
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    username: Mapped[str]
     email: Mapped[str]
     hashed_password: Mapped[str]
     active: Mapped[bool]
@@ -19,7 +18,6 @@ class UserPG(Base):
 
 class DatabaseUser(BaseModel):
     user_id: uuid.UUID
-    username: str
     email: str
     hashed_password: str
     active: bool
@@ -37,7 +35,6 @@ class SignInForm(BaseModel):
     password: str
 
 class SignUpForm(BaseModel):
-    username: str
     email: str
     password: str
 

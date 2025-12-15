@@ -1,11 +1,20 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker,create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+import os
 
-DATABASE_URL = 'postgresql+asyncpg://admin:trueadmin@postgres:5432/servr-db'
+def get_url()-> str:
 
-engine = create_async_engine(DATABASE_URL)
+    DATABASE_URL = os.getenv("DATABASE_URL") #'postgresql+asyncpg://postgres:dinqja123@localhost/servr_db'
+    if not DATABASE_URL:
+        raise RuntimeError("Url not set")
+    return DATABASE_URL
 
-AsyncSessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+engine = create_async_engine(get_url())
+
+AsyncSessionLocal = async_sessionmaker(bind=engine, 
+                                       expire_on_commit=False, 
+                                       class_=AsyncSession, 
+                                       autoflush=False)
 
