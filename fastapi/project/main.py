@@ -38,8 +38,8 @@ async def root():
     return {"message":"This is root"}
 
 @app.post("/sign-in")
-async def login_user(form: SignInForm, session: AsyncSession=Depends(get_db))->Token:
-    user = authenticate_user(form.email, form.password, session)
+async def login_user(form: SignInForm)->Token:
+    user = await authenticate_user(form.email, form.password)
     if not user:
         raise HTTPException(status_code=400,
                             detail="Incorrect email or password",
@@ -52,28 +52,31 @@ async def login_user(form: SignInForm, session: AsyncSession=Depends(get_db))->T
     return Token(access_token=access_token, token_type="bearer")
 
 @app.post("/sign-up")
-async def create_user(form: SignUpForm, session: AsyncSession=Depends(get_db)):
+async def create_user(form: SignUpForm):
     user_id = await create_new_user(form.email, form.password, session, s3)
     return {"message":"sign-up"}
 @app.post("/upload-file")
-async def upload_file(file: UploadFile=File(...)):
+async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_active_user)],
+                      file: UploadFile=File(...)):
+    user_id = current_user.user_id
     async with httpx.AsyncClient() as client:
         await client.post('http://rust:3000/upload-file',
                           files={
                                 "file":(file.filename, await file.read(), file.content_type),
                           },
                           data={
-                              "user_id":"50d16e49-5044-462e-afb9-63365148ac94",
+                              "user_id":str(user_id),
                               "parent_id":"",
                           },
                           )
 
 @app.get("/get-files")
-async def get_files():
+async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)]):
+    owner_id = current_user.user_id
     async with httpx.AsyncClient() as client:
         files = await client.post('http://rust:3000/get-files', 
                           json={
-                               "owner_id":"50d16e49-5044-462e-afb9-63365148ac94", 
+                               "owner_id":str(owner_id), 
                               },)
     return files.json()
 

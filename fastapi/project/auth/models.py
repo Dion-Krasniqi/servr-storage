@@ -15,6 +15,7 @@ class UserPG(Base):
     hashed_password: Mapped[str]
     active: Mapped[bool]
     super_user: Mapped[bool]
+    storage_used: Mapped[int]
 
 class DatabaseUser(BaseModel):
     user_id: uuid.UUID
@@ -22,6 +23,7 @@ class DatabaseUser(BaseModel):
     hashed_password: str
     active: bool
     super_user: bool
+    storage_used: int
 
 class Token(BaseModel):
     access_token: str

@@ -7,7 +7,7 @@ use std::env;
 
 mod files;
 mod models;
-use files::methods::{get_files, create_folder, upload_file, delete_file};
+use files::methods::{get_files, create_folder, upload_file, delete_file, create_bucket};
 use crate::models::{AppState};
 
 
@@ -57,6 +57,7 @@ async fn main() -> Result<(), s3::Error> {
         .route("/get-files", post(get_files))
         .route("/upload-file", post(upload_file))
         .route("/delete-file", post(delete_file))
+        .route("/create-bucket", post(create_bucket))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 

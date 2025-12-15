@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import boto3
 from botocore.exceptions import ClientError
 
+import httpx
 import jwt
 import uuid
 import os
@@ -23,25 +24,29 @@ TOKEN_EXPIRES = 30
 
 password_hash = PasswordHash.recommended()
 
-def verify_password(raw_password, hashed_password):
-    return password_has.verify(raw_password, hashed_password)
+async def get_db() -> AsyncSession:
+    async with AsyncSessionLocal() as session:
+        yield session
 
-async def get_user(email:str, session:AsyncSession):
+def verify_password(raw_password, hashed_password):
+    return password_hash.verify(raw_password, hashed_password)
+
+async def get_user(email:str, session:AsyncSession = Depends(get_db)):
     row = (await session.execute(select(UserPG).where(UserPG.email == email))).first()
     if row:
         user_dict = {"user_id":row[0].user_id,
-                     "username":row[0].username,
                      "email":row[0].email,
                      "hashed_password":row[0].hashed_password,
                      "active":row[0].active,
                      "super_user":row[0].super_user,
+                     "storage_used":row[0].storage_used,
                      }
         return DatabaseUser(**user_dict)
 
     return None
 
-def authenticate_user(email:str, password:str, session):
-    user = get_user(email, session)
+async def authenticate_user(email:str, password:str, session:AsyncSession=Depends(get_db) ):
+    user = await get_user(email)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
@@ -58,7 +63,8 @@ def create_access_token(data:dict, expires_delta: timedelta | None = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], session):
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)],
+                           session:AsyncSession = Depends(get_db)):
     credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                           detial="Couldn't validate credentials",
                                           headers={"WWW-Authenticate":"Bearer"})
@@ -70,7 +76,7 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], sessio
         token_data = TokenData(email=email)
     except InvalidTokenError:
         raise credentials_exception
-    user = get_user(session, email=token_data.email)
+    user = await get_user(session, email=token_data.email)
     if user is None:
         raise credentials_exception
     return user
@@ -80,32 +86,39 @@ async def get_current_active_user(current_user: Annotated[DatabaseUser, Depends(
         raise HTTPException(status_code=400, detail="Inactive User")
     return current_user
 
-async def create_new_user(email:str, password:str, session, client):
-    user = await get_user(email,session)
+async def create_new_user(email:str, password:str, client, 
+                          session:AsyncSession = Depends(get_db)):
+    user = await get_user(email, session)
     if user:
         raise HTTPException(status_code=400, detail="User with this email exists")
     new_id = uuid.uuid4()
+    user_password = password_hash.hash(password)
     new_user = {"user_id":new_id,
                "email":email,
-               "hashed_password": password_hash.hash(password),
+               "hashed_password": user_password,
                "active":True,
                "super_user":False,
                "storage_used":0,
                }
     try:
-        client.create_bucket(Bucket=new_id,)#location maybe)
+        async with httpx.AsyncClient() as rust:
+            await rust.post('http://rust:3000/create-bucket',
+                              json={
+                                    "owner_id":str(new_id),
+                                  },)
     except Exception as e:
         print(e)
-        return 0
+        raise HTTPException(status_code=502, detail="Error occured while creating bucket")
+    session = get_db()
     try:
-        session.execute(insert(UserPG).values(new_user))
-        session.commit()
+        await session.execute(insert(UserPG).values(new_user))
+        await session.commit()
     except:
-        session.rollback()
-        try:
-            client.delete_bucket(Bucket=new_id,)
-        except ClientError as e:
-            print("An eror occured ", error_code)
+        await session.rollback()
+        #try: HAVE TO ASYNC IT SOMEHOW
+        #    client.Bucket(Bucket=str(new_id)).delete()
+        #except ClientError as e:
+        #    print("An eror occured ", error_code)
         raise HTTPException(status_code=502, detail="Error occured while creating user")
     
     return new_id
