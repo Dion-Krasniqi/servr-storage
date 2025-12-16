@@ -87,22 +87,20 @@ pub async fn get_files(State(state): State<AppState>,
     for file in files {
         let url = "".to_string();
         response.push(FileResponse {
-            /*file_id: file.file_id,
+            file_id: file.file_id,
             owner_id: file.owner_id,
             parent_id: file.parent_id,
             file_name: file.file_name,
             extension: file.extension,
             size: file.size,
             file_type: file.file_type,
-            url: url,
-            create_at: file.created_at,
+            created_at: file.created_at,
             last_modified: file.last_modified,
-            shared_with: file.shared_with,*/
-            file: file,
+            shared_with: file.shared_with,
+            //file: file,
             url:url,
         });
     }
-    println!("Length {}",response.len());
     Ok(Json(response))
 }
 
@@ -232,7 +230,7 @@ pub async fn upload_file(State(state): State<AppState>,
                              
   let success = match sqlx::query("UPDATE TABLE users
                                    SET storage_used = storaged_used + $1
-                                   WHERE user_id = $2")
+                                   WHERE user_id = $2;")
       .bind(file_size)
       .bind(&owner_id)
       .execute(pool).await {
@@ -262,9 +260,20 @@ pub async fn delete_file(State(state): State<AppState>,
                                      RETURNING extension;")//maybe some other way to secure
         .bind(&file_id)
         .bind(&owner_id)
-        .fetch_one(pool).await
+        .fetch_one(pool)
+        .await
         .map_err(|e| GetFilesError::InternalError("Database delete failed".to_string()))?;
-    
+    // HARD CODED SIZE FOR NOW
+    let size = 0;
+    sqlx::query("UPDATE TABLE users
+                 SET storage_used = storage_used - $1
+                 WHERE user_id = $2;")
+        .bind(&owner_id)
+        .bind(&size)
+        .execute(pool)
+        .await
+        .map_err(|e| GetFilesError::InternalError(e.to_string()));  
+
     let success = match client.delete_object().bucket(&payload.owner_id).key(payload.file_id.clone() + &extension)
         .send().await {
         Ok(_) => format!("Deleted file"),

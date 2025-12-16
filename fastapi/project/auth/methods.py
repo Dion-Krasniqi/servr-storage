@@ -24,14 +24,10 @@ TOKEN_EXPIRES = 30
 
 password_hash = PasswordHash.recommended()
 
-async def get_db() -> AsyncSession:
-    async with AsyncSessionLocal() as session:
-        yield session
-
 def verify_password(raw_password, hashed_password):
     return password_hash.verify(raw_password, hashed_password)
 
-async def get_user(email:str, session:AsyncSession = Depends(get_db)):
+async def get_user(email:str, session):
     row = (await session.execute(select(UserPG).where(UserPG.email == email))).first()
     if row:
         user_dict = {"user_id":row[0].user_id,
@@ -45,8 +41,8 @@ async def get_user(email:str, session:AsyncSession = Depends(get_db)):
 
     return None
 
-async def authenticate_user(email:str, password:str, session:AsyncSession=Depends(get_db) ):
-    user = await get_user(email)
+async def authenticate_user(email:str, password:str, session):
+    user = await get_user(email, session)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
@@ -64,7 +60,7 @@ def create_access_token(data:dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)],
-                           session:AsyncSession = Depends(get_db)):
+                           session):
     credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                           detial="Couldn't validate credentials",
                                           headers={"WWW-Authenticate":"Bearer"})
@@ -87,7 +83,7 @@ async def get_current_active_user(current_user: Annotated[DatabaseUser, Depends(
     return current_user
 
 async def create_new_user(email:str, password:str, client, 
-                          session:AsyncSession = Depends(get_db)):
+                          session):
     user = await get_user(email, session)
     if user:
         raise HTTPException(status_code=400, detail="User with this email exists")
@@ -109,7 +105,6 @@ async def create_new_user(email:str, password:str, client,
     except Exception as e:
         print(e)
         raise HTTPException(status_code=502, detail="Error occured while creating bucket")
-    session = get_db()
     try:
         await session.execute(insert(UserPG).values(new_user))
         await session.commit()

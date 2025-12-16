@@ -38,8 +38,8 @@ async def root():
     return {"message":"This is root"}
 
 @app.post("/sign-in")
-async def login_user(form: SignInForm)->Token:
-    user = await authenticate_user(form.email, form.password)
+async def login_user(form: SignInForm, session: AsyncSession = Depends(get_db))->Token:
+    user = await authenticate_user(form.email, form.password, session)
     if not user:
         raise HTTPException(status_code=400,
                             detail="Incorrect email or password",
@@ -81,9 +81,10 @@ async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_ac
     return files.json()
 
 @app.post("/delete-file")
-async def delete_file():
+async def delete_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)]):
+    owner_id = current_user.user_id
     async with httpx.AsyncClient() as client:
         await client.post('http://rust:3000/delete-file', json={
-                              "owner_id":"50d16e49-5044-462e-afb9-63365148ac94",
+                              "owner_id":str(owner_id),
                               "file_id":"0748c7ba-3aea-48e3-8722-8b49b4ed0879"},) 
 

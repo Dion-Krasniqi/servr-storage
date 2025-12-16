@@ -33,7 +33,17 @@ pub struct DatabaseFile {
 }
 #[derive(Debug, Serialize)]
 pub struct FileResponse {
-    pub file: DatabaseFile,
+    //pub file: DatabaseFile
+    pub file_id: Uuid,
+    pub owner_id: Uuid,
+    pub parent_id: Option<Uuid>,
+    pub file_name: String,
+    pub extension: Option<String>,
+    pub size: i64,
+    pub file_type: FileType,
+    pub created_at: Option<DateTime<Utc>>,
+    pub last_modified: Option<DateTime<Utc>>,
+    pub shared_with: Vec<Uuid>,
     pub url: String,
 }
 
