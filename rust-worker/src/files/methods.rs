@@ -65,9 +65,10 @@ pub async fn get_files(State(state): State<AppState>,
     } else {
       return Err(GetFilesError::NotFound("User bucket not found".to_string()));
     };
+    
     // still for fetching from db
     let owner_id = Uuid::parse_str(&payload.owner_id) 
-        .map_err(|_| GetFilesError::InternalError("Failed to get parse user id".to_string()))?;
+        .map_err(|_| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
     
     let list_objects_output = match client.list_objects_v2().bucket(&payload.owner_id).send().await {
         Ok(res) => res,
@@ -105,32 +106,26 @@ pub async fn get_files(State(state): State<AppState>,
     Ok(Json(response))
 }
 
-pub async fn create_folder(pool: extract::State<PgPool>,
-                           payload: extract::Json<CreateFolderForm>)->Result<Json<String>, String> {
-    let user_id = match Uuid::parse_str(&payload.owner_id) {
-        Ok(id) => id,
-        Err(e) => return Err(format!("Failed to get user id: {}", e)),
-    };
+pub async fn create_folder(State(state): State<AppState>,
+                           payload: extract::Json<CreateFolderForm>)->Result<Json<String>, GetFilesError> {
+    let user_id = Uuid::parse_str(&payload.owner_id)
+        .map_err(|e| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
 
     let folder_id = Uuid::new_v4();
     let parent_id = match payload.parent_id.is_empty() {
        true => None,
-       false => match Uuid::parse_str(&payload.parent_id) {
-            Ok(id) => Some(id),
-            Err(e) => return Err(format!("Failed to get parent id: {}", e)),
-        }
+       false => Some(Uuid::parse_str(&payload.parent_id) 
+                   .map_err(|_| GetFilesError::InternalError("Failed to parse parent id".to_string()))?),
     };
 
     let folder_name = payload.folder_name.clone();
     let created_at = Some(Utc::now());
     let last_modified = Some(Utc::now());
     let shared_with: Vec<Uuid> = Vec::new();
-    println!("{}",folder_name);
-    println!("{}",folder_id);
-    println!("{}", user_id);
+    
     let success = match sqlx::query("INSERT into files (file_id, owner_id, parent_id, file_name,
-                                       size, file_type, created_at, last_modified, shared_with) 
-                                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);")
+                                     size, file_type, created_at, last_modified, shared_with) 
+                                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);")
         .bind(&folder_id)
         .bind(&user_id)
         .bind(&parent_id)
@@ -140,11 +135,10 @@ pub async fn create_folder(pool: extract::State<PgPool>,
         .bind(&created_at)
         .bind(&last_modified)
         .bind(shared_with)
-        .execute(&pool.0).await {
-            Ok(_) => "Folder Created",
-            Err(e) => return Err(format!("Failed to created folder: {}", e)),
-    };
-
+        .execute(&state.pool).await {
+            Ok(_) => "Uploaded File",
+            Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
+        };
     Ok(Json(success.to_string()))
 }
 
@@ -220,9 +214,9 @@ pub async fn upload_file(State(state): State<AppState>,
   };
   
   let pool = &state.pool;
-  match sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
-                                   size, extension, file_type, created_at, last_modified, shared_with)
-                                   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
+  sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
+               size, extension, file_type, created_at, last_modified, shared_with)
+               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
       .bind(&file_id)
       .bind(&owner_id)
       .bind(&parent_id)
@@ -233,19 +227,18 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(&created_at)
       .bind(&last_modified)
       .bind(shared_with)
-      .execute(pool).await {
-            Ok(_) => "File Uploaded",
-            Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
-      };
+      .execute(pool).await
+      .map_err(|e| GetFilesError::InternalError(e.to_string()));
+                             
   let success = match sqlx::query("UPDATE TABLE users
                                    SET storage_used = storaged_used + $1
                                    WHERE user_id = $2")
       .bind(file_size)
       .bind(&owner_id)
       .execute(pool).await {
-            Ok(_) => "File Uploaded Successfully",
+            Ok(_) => "File uploaded succesfully",
             Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
-  };
+      };
   Ok(Json(success.to_string()))
 }
 
@@ -264,19 +257,18 @@ pub async fn delete_file(State(state): State<AppState>,
     let pool = &state.pool;
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    /*let extension: String= match sqlx::query_scalar("DELETE FROM files
+    let extension: String = sqlx::query_scalar("DELETE FROM files
                                      WHERE file_id = ($1) AND owner_id = ($2)
                                      RETURNING extension;")//maybe some other way to secure
         .bind(&file_id)
         .bind(&owner_id)
-        .fetch_one(pool).await {
-            Ok(ext) => ext,
-            Err(e) => return Err(GetFilesError::InternalError("Database delete failed".to_string())),
-    };*/
-    let success = match client.delete_object().bucket(&payload.owner_id).key(payload.file_id.clone() + ".jpg"/* + &extension*/)
+        .fetch_one(pool).await
+        .map_err(|e| GetFilesError::InternalError("Database delete failed".to_string()))?;
+    
+    let success = match client.delete_object().bucket(&payload.owner_id).key(payload.file_id.clone() + &extension)
         .send().await {
         Ok(_) => format!("Deleted file"),
-        Err(e) => return Err(GetFilesError::InternalError("Failed to delete object file".to_string())),
+        Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
 
     };
 
