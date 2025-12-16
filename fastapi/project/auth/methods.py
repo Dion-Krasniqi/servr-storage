@@ -23,6 +23,10 @@ ALGORITHM = os.getenv("ALGORITHM")
 TOKEN_EXPIRES = 30
 
 password_hash = PasswordHash.recommended()
+async def get_db() -> AsyncSession:
+    async with AsyncSessionLocal() as session:
+        yield session
+
 
 def verify_password(raw_password, hashed_password):
     return password_hash.verify(raw_password, hashed_password)
@@ -60,12 +64,12 @@ def create_access_token(data:dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)],
-                           session):
+                           session: AsyncSession = Depends(get_db)):
     credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                                          detial="Couldn't validate credentials",
+                                          detail="Couldn't validate credentials",
                                           headers={"WWW-Authenticate":"Bearer"})
     try:
-        payload = jwd.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
         if email is None:
             raise credentials_exception

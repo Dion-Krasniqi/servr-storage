@@ -36,7 +36,9 @@ async def get_db() -> AsyncSession:
 @app.get("/")
 async def root():
     return {"message":"This is root"}
-
+@app.get("/users-me")
+async def read_self(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)]):
+    return current_user
 @app.post("/sign-in")
 async def login_user(form: SignInForm, session: AsyncSession = Depends(get_db))->Token:
     user = await authenticate_user(form.email, form.password, session)
