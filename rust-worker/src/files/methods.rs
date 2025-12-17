@@ -58,10 +58,9 @@ pub async fn create_bucket(State(state): State<AppState>,
 pub async fn get_files(State(state): State<AppState>,
                        payload: extract::Json<OwnerId>) -> Result<Json<Vec<FileResponse>>,
                                                                   GetFilesError> {
-    println!("ran");    
     let client = &state.client;
     if (check_bucket(&client, &payload.owner_id)).await? {
-        //
+        println!("Bucked does exist");    
     } else {
       return Err(GetFilesError::NotFound("User bucket not found".to_string()));
     };
@@ -70,10 +69,6 @@ pub async fn get_files(State(state): State<AppState>,
     let owner_id = Uuid::parse_str(&payload.owner_id) 
         .map_err(|_| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
     
-    let list_objects_output = match client.list_objects_v2().bucket(&payload.owner_id).send().await {
-        Ok(res) => res,
-        Err(e) => return Err(GetFilesError::InternalError("Failed to get user objects".to_string())),
-    };
     /*    let key = thingy.key().unwrap();
         let object_url = get_presigned_url(client, &payload.owner_id, key).await?;
     */
@@ -85,7 +80,11 @@ pub async fn get_files(State(state): State<AppState>,
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     let mut response = Vec::with_capacity(files.len());
     for file in files {
-        let url = "".to_string();
+        let key = file.file_id.to_string() + "." + &file.extension.clone().expect("REASON");
+        let url = match (file.file_type == FileType::Media){
+            true => get_presigned_url(client, &payload.owner_id, &key).await?,  
+            _ => "".to_string(),
+        };
         response.push(FileResponse {
             file_id: file.file_id,
             owner_id: file.owner_id,
@@ -168,7 +167,7 @@ pub async fn upload_file(State(state): State<AppState>,
   };
   let client = &state.client;
   if (check_bucket(&client, &user_id)).await? {
-    //
+    println!("Bucket does exist!");
   } else {
     return Err(GetFilesError::NotFound("User bucket not found".to_string()));
   };
@@ -228,8 +227,8 @@ pub async fn upload_file(State(state): State<AppState>,
       .execute(pool).await
       .map_err(|e| GetFilesError::InternalError(e.to_string()));
                              
-  let success = match sqlx::query("UPDATE TABLE users
-                                   SET storage_used = storaged_used + $1
+  let success = match sqlx::query("UPDATE users
+                                   SET storage_used = storage_used + $1
                                    WHERE user_id = $2;")
       .bind(file_size)
       .bind(&owner_id)
@@ -265,7 +264,7 @@ pub async fn delete_file(State(state): State<AppState>,
         .map_err(|e| GetFilesError::InternalError("Database delete failed".to_string()))?;
     // HARD CODED SIZE FOR NOW
     let size = 0;
-    sqlx::query("UPDATE TABLE users
+    sqlx::query("UPDATE users
                  SET storage_used = storage_used - $1
                  WHERE user_id = $2;")
         .bind(&owner_id)

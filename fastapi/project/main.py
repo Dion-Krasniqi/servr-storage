@@ -75,11 +75,14 @@ async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_a
 @app.get("/get-files")
 async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)]):
     owner_id = current_user.user_id
+    empty_files = []
     async with httpx.AsyncClient() as client:
         files = await client.post('http://rust:3000/get-files', 
                           json={
                                "owner_id":str(owner_id), 
                               },)
+    if files == None:
+        return empty_files.json()
     return files.json()
 
 @app.post("/delete-file")

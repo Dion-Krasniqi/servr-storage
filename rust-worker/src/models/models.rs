@@ -12,7 +12,7 @@ pub struct OwnerId {
     pub owner_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Serialize, Deserialize, sqlx::Type,PartialEq)]
 #[sqlx(type_name="FILETYPE", rename_all="lowercase")]
 #[serde(rename_all = "lowercase")] //for deserializing
 pub enum FileType { Media, Document, Other, Folder }

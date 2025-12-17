@@ -14,7 +14,7 @@ import httpx
 import jwt
 import uuid
 import os
-from project.database.database import AsyncSession
+from project.database.database import AsyncSessionLocal
 from .models import *
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="sign-in")
@@ -76,7 +76,7 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)],
         token_data = TokenData(email=email)
     except InvalidTokenError:
         raise credentials_exception
-    user = await get_user(session, email=token_data.email)
+    user = await get_user(token_data.email, session)
     if user is None:
         raise credentials_exception
     return user
