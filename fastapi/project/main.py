@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Form
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Form, Body
 from fastapi.security import OAuth2PasswordBearer
 #from minio import Minio
 #from minio.error import S3Error
@@ -86,10 +86,19 @@ async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_ac
     return files.json()
 
 @app.post("/delete-file")
-async def delete_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)]):
+async def delete_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)],
+                      form: DeleteForm):
     owner_id = current_user.user_id
     async with httpx.AsyncClient() as client:
-        await client.post('http://rust:3000/delete-file', json={
-                              "owner_id":str(owner_id),
-                              "file_id":"0748c7ba-3aea-48e3-8722-8b49b4ed0879"},) 
-
+        response = await client.post('http://rust:3000/delete-file', json={
+                                    "owner_id": str(owner_id),
+                                    "file_id":form.file_id,},) 
+    return {"response": response.is_success}
+@app.post("/rename-file")
+async def rename_file(form: RenameForm):
+    async with httpx.AsyncClient() as client:
+        await client.post('http://rust:3000/rename-file', json={
+                                    "file_id": form.file_id,
+                                    "file_name": form.file_name,
+                                    },)
+            

@@ -20,7 +20,8 @@ use crate::models::{DatabaseFile,
                     OwnerId, 
                     CreateFolderForm, 
                     FileType, 
-                    DeleteFileForm, 
+                    DeleteFileForm,
+                    RenameFileForm,
                     AppState,
                     GetFilesError};
 
@@ -267,8 +268,8 @@ pub async fn delete_file(State(state): State<AppState>,
     sqlx::query("UPDATE users
                  SET storage_used = storage_used - $1
                  WHERE user_id = $2;")
-        .bind(&owner_id)
         .bind(&size)
+        .bind(&owner_id)
         .execute(pool)
         .await
         .map_err(|e| GetFilesError::InternalError(e.to_string()));  
@@ -279,6 +280,31 @@ pub async fn delete_file(State(state): State<AppState>,
         Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
 
     };
+    println!("{}",success.to_string());
 
     Ok(Json(success.to_string()))
+}
+
+pub async fn rename_file(State(state): State<AppState>,
+                         payload: extract::Json<RenameFileForm>)->Result<Json<String>, GetFilesError> {
+    
+    let file_id = Uuid::parse_str(&payload.file_id)
+        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    //let owner_id = Uuid::parse_str(&payload.owner_id)
+    //    .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    let pool = &state.pool;
+
+    let success = match sqlx::query("UPDATE files
+                               SET file_name = $1
+                               WHERE file_id = $2;")
+        .bind(&payload.file_name)
+        .bind(&file_id)
+        .execute(pool)
+        .await {
+            Ok(_) => "File renamed",
+            Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
+        };
+    println!("{}",success.to_string());
+    Ok(Json(success.to_string()))
+
 }

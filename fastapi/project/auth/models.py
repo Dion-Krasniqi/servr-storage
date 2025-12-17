@@ -40,3 +40,9 @@ class SignUpForm(BaseModel):
     email: str
     password: str
 
+class RenameForm(BaseModel):
+    file_id: str
+    file_name: str
+
+class DeleteForm(BaseModel):
+    file_id: str

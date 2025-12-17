@@ -63,6 +63,12 @@ pub struct DeleteFileForm {
     pub owner_id: String, //lowkey not
     pub file_id: String,
 }
+//renaming
+#[derive(Debug,Deserialize)]
+pub struct RenameFileForm {
+    pub file_id: String,
+    pub file_name: String,
+}
 
 #[derive(Clone)]
 pub struct AppState {
