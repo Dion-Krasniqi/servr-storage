@@ -82,10 +82,11 @@ pub async fn get_files(State(state): State<AppState>,
     let mut response = Vec::with_capacity(files.len());
     for file in files {
         let key = file.file_id.to_string() + "." + &file.extension.clone().expect("REASON");
-        let url = match (file.file_type == FileType::Media){
+        /*let url = match (file.file_type == FileType::Media){
             true => get_presigned_url(client, &payload.owner_id, &key).await?,  
             _ => "".to_string(),
-        };
+        };*/
+        let url = get_presigned_url(client, &payload.owner_id, &key).await?;
         response.push(FileResponse {
             file_id: file.file_id,
             owner_id: file.owner_id,
@@ -255,26 +256,28 @@ pub async fn delete_file(State(state): State<AppState>,
     let pool = &state.pool;
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    let extension: String = sqlx::query_scalar("DELETE FROM files
-                                     WHERE file_id = ($1) AND owner_id = ($2)
-                                     RETURNING extension;")//maybe some other way to secure
+    let (extension, size): (Option<String>, i64) = sqlx::query_as("DELETE FROM files
+                                     WHERE file_id = ($1) 
+                                     RETURNING extension, size;")//check if user owns file
         .bind(&file_id)
-        .bind(&owner_id)
         .fetch_one(pool)
         .await
         .map_err(|e| GetFilesError::InternalError("Database delete failed".to_string()))?;
     // HARD CODED SIZE FOR NOW
-    let size = 0;
     sqlx::query("UPDATE users
                  SET storage_used = storage_used - $1
                  WHERE user_id = $2;")
-        .bind(&size)
+        .bind(size)
         .bind(&owner_id)
         .execute(pool)
         .await
         .map_err(|e| GetFilesError::InternalError(e.to_string()));  
-
-    let success = match client.delete_object().bucket(&payload.owner_id).key(payload.file_id.clone() + &extension)
+    
+    let key = match extension {
+        Some(ext) => format!("{}.{}", payload.file_id, ext),
+        None => payload.file_id.clone(),
+    };
+    let success = match client.delete_object().bucket(&payload.owner_id).key(key)
         .send().await {
         Ok(_) => format!("Deleted file"),
         Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
@@ -292,14 +295,15 @@ pub async fn rename_file(State(state): State<AppState>,
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     //let owner_id = Uuid::parse_str(&payload.owner_id)
     //    .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    let pool = &state.pool;
-
-    let success = match sqlx::query("UPDATE files
-                               SET file_name = $1
-                               WHERE file_id = $2;")
+    if payload.file_name.trim().is_empty() {
+        return Err(GetFilesError::InternalError("Invalid name".to_string()));
+    }
+    let success = match sqlx::query(r#"UPDATE files
+                               SET file_name = ($1)
+                               WHERE file_id = ($2);"#)
         .bind(&payload.file_name)
         .bind(&file_id)
-        .execute(pool)
+        .execute(&state.pool)
         .await {
             Ok(_) => "File renamed",
             Err(e) => return Err(GetFilesError::InternalError(e.to_string())),

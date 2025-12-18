@@ -86,8 +86,7 @@ async def get_current_active_user(current_user: Annotated[DatabaseUser, Depends(
         raise HTTPException(status_code=400, detail="Inactive User")
     return current_user
 
-async def create_new_user(email:str, password:str, client, 
-                          session):
+async def create_new_user(email:str, password:str, session, client):
     user = await get_user(email, session)
     if user:
         raise HTTPException(status_code=400, detail="User with this email exists")

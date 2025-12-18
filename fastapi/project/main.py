@@ -54,7 +54,7 @@ async def login_user(form: SignInForm, session: AsyncSession = Depends(get_db))-
     return Token(access_token=access_token, token_type="bearer")
 
 @app.post("/sign-up")
-async def create_user(form: SignUpForm):
+async def create_user(form: SignUpForm, session: AsyncSession = Depends(get_db)):
     user_id = await create_new_user(form.email, form.password, session, s3)
     return {"message":"sign-up"}
 @app.post("/upload-file")
@@ -71,6 +71,8 @@ async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_a
                               "parent_id":"",
                           },
                           )
+
+    return {"response": True}
 
 @app.get("/get-files")
 async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)]):
