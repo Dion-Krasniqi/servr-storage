@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Form, Body
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Form
 from fastapi.security import OAuth2PasswordBearer
 #from minio import Minio
 #from minio.error import S3Error
@@ -72,20 +72,23 @@ async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_a
                           },
                           )
 
-    return {"response": True}
-
+    return {"response":True}
 @app.get("/get-files")
 async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)]):
     owner_id = current_user.user_id
-    empty_files = []
     async with httpx.AsyncClient() as client:
         files = await client.post('http://rust:3000/get-files', 
                           json={
                                "owner_id":str(owner_id), 
                               },)
-    if files == None:
-        return empty_files.json()
-    return files.json()
+        #await client.get('http://rust:3000/')
+    if files.status_code != 200:
+        return [] 
+    data = files.json()
+    
+    if not files:
+        return []
+    return data
 
 @app.post("/delete-file")
 async def delete_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)],

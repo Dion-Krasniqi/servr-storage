@@ -30,10 +30,11 @@ async fn check_bucket(client: &s3::Client, bucket_name: &str)->Result<bool, s3::
         Ok(_) => Ok(true),
         Err(e) => {
             if let Some(code) = e.code() {
-                if code == "NotFound" {
+                if code == "NotFound" || code == "NoSuchBucket" {
                     return Ok(false);
                 }
             }
+            eprintln!("Error {:?}", e);
             Err(e.into())
         }
     }
@@ -74,14 +75,15 @@ pub async fn get_files(State(state): State<AppState>,
         let object_url = get_presigned_url(client, &payload.owner_id, key).await?;
     */
     let pool = &state.pool;
-    let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id=$1")
+    let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id=$1;")
         .bind(&owner_id)
         .fetch_all(pool)
         .await
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     let mut response = Vec::with_capacity(files.len());
     for file in files {
-        let key = file.file_id.to_string() + "." + &file.extension.clone().expect("REASON");
+        let ext = file.extension.clone().unwrap_or_default();
+        let key = file.file_id.to_string() + "." + &ext;
         /*let url = match (file.file_type == FileType::Media){
             true => get_presigned_url(client, &payload.owner_id, &key).await?,  
             _ => "".to_string(),
@@ -144,6 +146,7 @@ pub async fn create_folder(State(state): State<AppState>,
 //2mb limit 
 pub async fn upload_file(State(state): State<AppState>,
                          mut payload: Multipart)->Result<Json<String>, GetFilesError> {
+  println!("Ran");
   let mut data = Bytes::new();
   let mut filename = String::new(); 
   let mut content_type = String::new();
@@ -287,7 +290,7 @@ pub async fn delete_file(State(state): State<AppState>,
 
     Ok(Json(success.to_string()))
 }
-
+/*
 pub async fn rename_file(State(state): State<AppState>,
                          payload: extract::Json<RenameFileForm>)->Result<Json<String>, GetFilesError> {
     
@@ -311,4 +314,4 @@ pub async fn rename_file(State(state): State<AppState>,
     println!("{}",success.to_string());
     Ok(Json(success.to_string()))
 
-}
+}*/

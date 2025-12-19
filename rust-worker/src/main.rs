@@ -1,4 +1,4 @@
-use axum::{ routing::post, Router };
+use axum::{routing::post,routing::get, Router, };
 use sqlx::postgres::PgPoolOptions;
 use aws_sdk_s3 as s3;
 
@@ -7,14 +7,19 @@ use std::env;
 
 mod files;
 mod models;
-use files::methods::{get_files, create_folder, upload_file, delete_file, rename_file, 
+use files::methods::{get_files, create_folder, upload_file, delete_file, 
                      create_bucket};
 use crate::models::{AppState};
 
+async fn hello_world() -> &'static str {
+    println!("Hello");
+    "Hello"
+}
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() -> Result<(), s3::Error> {
-    dotenv().ok();
+
+    println!("On");
     let DATABASE_URL = match env::var("DATABASE_URL") {
         Ok(url) => url,
         Err(e) => "".to_string(),
@@ -54,18 +59,20 @@ async fn main() -> Result<(), s3::Error> {
     let client = s3::Client::new(&config);
     
     let state = AppState {pool, client};
-    let app = Router::new()//.route("/create-folder",post(create_folder))
+    let app = Router::new()
         .route("/get-files", post(get_files))
         .route("/upload-file", post(upload_file))
         .route("/delete-file", post(delete_file))
         .route("/create-bucket", post(create_bucket))
-        .route("/rename-file", post(rename_file))
+        .route("/", get(hello_world))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-
-    axum::serve(listener, app)
-        .await.
-        unwrap();
+    
+    
+    if let Err(e) = axum::serve(listener, app)
+        .await{
+            eprintln!("Error : {:?}", e);
+        }
     
     Ok(())
 }
