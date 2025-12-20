@@ -290,23 +290,24 @@ pub async fn delete_file(State(state): State<AppState>,
 
     Ok(Json(success.to_string()))
 }
-/*
+
 pub async fn rename_file(State(state): State<AppState>,
                          payload: extract::Json<RenameFileForm>)->Result<Json<String>, GetFilesError> {
-    
+    println!("Rename ran");
     let file_id = Uuid::parse_str(&payload.file_id)
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     //let owner_id = Uuid::parse_str(&payload.owner_id)
     //    .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     if payload.file_name.trim().is_empty() {
+        println!("Fails here");
         return Err(GetFilesError::InternalError("Invalid name".to_string()));
     }
+    let pool = &state.pool;
     let success = match sqlx::query(r#"UPDATE files
-                               SET file_name = ($1)
-                               WHERE file_id = ($2);"#)
-        .bind(&payload.file_name)
+                               SET file_name = 'renamed'
+                               WHERE file_id = ($1);"#)
         .bind(&file_id)
-        .execute(&state.pool)
+        .execute(pool)
         .await {
             Ok(_) => "File renamed",
             Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
@@ -314,4 +315,4 @@ pub async fn rename_file(State(state): State<AppState>,
     println!("{}",success.to_string());
     Ok(Json(success.to_string()))
 
-}*/
+}
