@@ -302,10 +302,12 @@ pub async fn rename_file(State(state): State<AppState>,
         println!("Fails here");
         return Err(GetFilesError::InternalError("Invalid name".to_string()));
     }
+    let name = payload.file_name.trim();
     let pool = &state.pool;
     let success = match sqlx::query(r#"UPDATE files
-                               SET file_name = 'renamed'
-                               WHERE file_id = ($1);"#)
+                               SET file_name = ($1)
+                               WHERE file_id = ($2);"#)
+        .bind(&name)
         .bind(&file_id)
         .execute(pool)
         .await {
