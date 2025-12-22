@@ -1,19 +1,20 @@
 use axum::{extract, Json};
 use axum_extra::extract::Multipart;
+use axum::extract::State;
+use axum::response::IntoResponse;
+
 use sqlx::PgPool;
 use uuid::Uuid;
 use chrono::Utc;
 use bytes::Bytes;
 use std::time::Duration;
-
+use std::path::Path;
 // clean these imports us
 use aws_sdk_s3 as s3;
 use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
 
-use axum::extract::State;
 use failure;
-use axum::response::IntoResponse;
 
 use crate::models::{DatabaseFile,
                     FileResponse,
@@ -200,7 +201,8 @@ pub async fn upload_file(State(state): State<AppState>,
         false => Some(Uuid::parse_str(&payload_parent_id)
             .map_err(|e| GetFilesError::InternalError(e.to_string()))?),
   };
-  
+
+  let name = Path::new(&filename).file_stem().unwrap();
   let created_at = Some(Utc::now());
   let last_modified = Some(Utc::now());
   let shared_with: Vec<Uuid> = Vec::new();
@@ -222,7 +224,7 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(&file_id)
       .bind(&owner_id)
       .bind(&parent_id)
-      .bind(&filename)
+      .bind(name.to_str())
       .bind(file_size)
       .bind(&extension)
       .bind(&file_type)
