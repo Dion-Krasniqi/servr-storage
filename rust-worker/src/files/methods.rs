@@ -40,23 +40,35 @@ async fn check_bucket(client: &s3::Client, bucket_name: &str)->Result<bool, s3::
         }
     }
 }
+
 async fn get_presigned_url(client: &s3::Client, bucket_name: &str, object_key: &str)->Result<String, failure::Error> {
-    let expires_in = Duration::from_secs(120);
-    let presigned_request = client.get_object()
-                                  .bucket(bucket_name)
-                                  .key(object_key)
-                                  .presigned(PresigningConfig::expires_in(expires_in)?)
-                                  .await?;
-    Ok(presigned_request.uri().to_string())
+    let expires_in = Duration::from_secs(604800);  //7days
+    match client.get_object()
+                            .bucket(bucket_name)
+                            .key(object_key)
+                            .presigned(PresigningConfig::expires_in(expires_in)?)
+                            .await {
+                                    Ok(link) => Ok(link.uri().to_string()),
+                                    Err(e) => {
+                                                eprintln!("Error {:?}", e);
+                                                return Err(e.into())
+                                              }
+                                  }
 }
+
 pub async fn create_bucket(State(state): State<AppState>,
                            payload: extract::Json<OwnerId>) -> Result<Json<String>, GetFilesError> {
     let client = &state.client;
-    client.create_bucket().bucket(&payload.owner_id).send().await
-        .map_err(|e| GetFilesError::S3Error(e.into()))?;
+    match client.create_bucket().bucket(&payload.owner_id).send()
+        .await
+        {   
+            Ok(_) => Ok(Json("success".to_string())),
+            Err(e) => {
+                        eprintln!("Error {:?}", e);    
+                        return Err(GetFilesError::S3Error(e.into()))
+            }
 
-    Ok(Json("success".to_string()))
-
+    }
 }
 pub async fn get_files(State(state): State<AppState>,
                        payload: extract::Json<OwnerId>) -> Result<Json<Vec<FileResponse>>,
