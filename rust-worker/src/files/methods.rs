@@ -1,7 +1,5 @@
-use axum::{extract, Json};
+use axum::{extract,extract::State, Json};
 use axum_extra::extract::Multipart;
-use axum::extract::State;
-use axum::response::IntoResponse;
 
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -9,7 +7,7 @@ use chrono::Utc;
 use bytes::Bytes;
 use std::time::Duration;
 use std::path::Path;
-// clean these imports us
+
 use aws_sdk_s3 as s3;
 use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
@@ -70,13 +68,16 @@ pub async fn create_bucket(State(state): State<AppState>,
 
     }
 }
+
 pub async fn get_files(State(state): State<AppState>,
-                       payload: extract::Json<OwnerId>) -> Result<Json<Vec<FileResponse>>,
-                                                                  GetFilesError> {
+                       payload: extract::Json<OwnerId>) 
+                       -> Result<Json<Vec<FileResponse>>, GetFilesError> {
+    println!("We are fetching!");
     let client = &state.client;
     if (check_bucket(&client, &payload.owner_id)).await? {
         println!("Bucked does exist");    
     } else {
+      println!("Users bucket not found!");
       return Err(GetFilesError::NotFound("User bucket not found".to_string()));
     };
     
@@ -88,20 +89,24 @@ pub async fn get_files(State(state): State<AppState>,
         let object_url = get_presigned_url(client, &payload.owner_id, key).await?;
     */
     let pool = &state.pool;
+    
     let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id=$1;")
         .bind(&owner_id)
         .fetch_all(pool)
         .await
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    
     let mut response = Vec::with_capacity(files.len());
     for file in files {
         let ext = file.extension.clone().unwrap_or_default();
         let key = file.file_id.to_string() + "." + &ext;
+        
         /*let url = match (file.file_type == FileType::Media){
             true => get_presigned_url(client, &payload.owner_id, &key).await?,  
             _ => "".to_string(),
         };*/
-        let url = get_presigned_url(client, &payload.owner_id, &key).await?;
+        
+        let url = get_presigned_url(client, &payload.owner_id, &key).await?;//possibly handle cases
         response.push(FileResponse {
             file_id: file.file_id,
             owner_id: file.owner_id,
@@ -113,7 +118,6 @@ pub async fn get_files(State(state): State<AppState>,
             created_at: file.created_at,
             last_modified: file.last_modified,
             shared_with: file.shared_with,
-            //file: file,
             url:url,
         });
     }
@@ -122,6 +126,7 @@ pub async fn get_files(State(state): State<AppState>,
 
 pub async fn create_folder(State(state): State<AppState>,
                            payload: extract::Json<CreateFolderForm>)->Result<Json<String>, GetFilesError> {
+    println!("CreateFolder ran");
     let user_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
 
@@ -137,29 +142,30 @@ pub async fn create_folder(State(state): State<AppState>,
     let last_modified = Some(Utc::now());
     let shared_with: Vec<Uuid> = Vec::new();
     
-    let success = match sqlx::query("INSERT into files (file_id, owner_id, parent_id, file_name,
-                                     size, file_type, created_at, last_modified, shared_with) 
-                                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);")
+    match sqlx::query("INSERT into files (file_id, owner_id, parent_id, file_name,
+                       size, file_type, created_at, last_modified, shared_with) 
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);")
         .bind(&folder_id)
         .bind(&user_id)
         .bind(&parent_id)
         .bind(&folder_name)
-        .bind(1)
+        .bind(0)
         .bind(FileType::Folder)
         .bind(&created_at)
         .bind(&last_modified)
         .bind(shared_with)
         .execute(&state.pool).await {
-            Ok(_) => "Uploaded File",
-            Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
-        };
-    Ok(Json(success.to_string()))
+            Ok(_) => Ok(Json("Uploaded File".to_string())),
+            Err(e) => {
+                        eprintln!("Error {:?}", e);
+                        return Err(GetFilesError::InternalError(e.to_string()))}
+        }
 }
 
 //2mb limit 
 pub async fn upload_file(State(state): State<AppState>,
                          mut payload: Multipart)->Result<Json<String>, GetFilesError> {
-  println!("Ran");
+  println!("UploadFile Ran");
   let mut data = Bytes::new();
   let mut filename = String::new(); 
   let mut content_type = String::new();
@@ -187,10 +193,10 @@ pub async fn upload_file(State(state): State<AppState>,
   if (check_bucket(&client, &user_id)).await? {
     println!("Bucket does exist!");
   } else {
+    println!("User bucket not found");
     return Err(GetFilesError::NotFound("User bucket not found".to_string()));
   };
 
-  // ehhh
   let file_size = data.len() as i64; 
   let file_id = Uuid::new_v4();
 
@@ -246,16 +252,18 @@ pub async fn upload_file(State(state): State<AppState>,
       .execute(pool).await
       .map_err(|e| GetFilesError::InternalError(e.to_string()));
                              
-  let success = match sqlx::query("UPDATE users
-                                   SET storage_used = storage_used + $1
-                                   WHERE user_id = $2;")
+  match sqlx::query("UPDATE users
+                     SET storage_used = storage_used + $1
+                     WHERE user_id = $2;")
       .bind(file_size)
       .bind(&owner_id)
       .execute(pool).await {
-            Ok(_) => "File uploaded succesfully",
-            Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
-      };
-  Ok(Json(success.to_string()))
+            Ok(_) => Ok(Json("File uploaded succesfully".to_string())),
+            Err(e) => { 
+                        eprintln!("Error {:?}", e);
+                        return Err(GetFilesError::InternalError(e.to_string()))
+        }
+      }
 }
 
 pub async fn delete_file(State(state): State<AppState>,
