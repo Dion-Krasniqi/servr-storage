@@ -268,7 +268,7 @@ pub async fn upload_file(State(state): State<AppState>,
 
 pub async fn delete_file(State(state): State<AppState>,
                          payload: extract::Json<DeleteFileForm>)->Result<Json<String>, GetFilesError> {
-    println!("Ran");
+    println!("DeleteFile Ran");
     let file_id = Uuid::parse_str(&payload.file_id) 
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     
@@ -276,6 +276,7 @@ pub async fn delete_file(State(state): State<AppState>,
     if (check_bucket(&client, &payload.owner_id)).await? {
         //
     } else {
+        println!("User bucket not found!");
         return Err(GetFilesError::NotFound("User bucket not found".to_string()));
     };
     let pool = &state.pool;
@@ -288,7 +289,7 @@ pub async fn delete_file(State(state): State<AppState>,
         .fetch_one(pool)
         .await
         .map_err(|e| GetFilesError::InternalError("Database delete failed".to_string()))?;
-    // HARD CODED SIZE FOR NOW
+
     sqlx::query("UPDATE users
                  SET storage_used = storage_used - $1
                  WHERE user_id = $2;")
@@ -302,15 +303,14 @@ pub async fn delete_file(State(state): State<AppState>,
         Some(ext) => format!("{}.{}", payload.file_id, ext),
         None => payload.file_id.clone(),
     };
-    let success = match client.delete_object().bucket(&payload.owner_id).key(key)
+    match client.delete_object().bucket(&payload.owner_id).key(key)
         .send().await {
-        Ok(_) => format!("Deleted file"),
-        Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
-
-    };
-    println!("{}",success.to_string());
-
-    Ok(Json(success.to_string()))
+        Ok(_) => Ok(Json("File Deleted".to_string())),
+        Err(e) => {
+                    eprintln!("Error {:?}", e);
+                    return Err(GetFilesError::InternalError(e.to_string()))
+                  }
+            }
 }
 
 pub async fn rename_file(State(state): State<AppState>,
@@ -321,22 +321,23 @@ pub async fn rename_file(State(state): State<AppState>,
     //let owner_id = Uuid::parse_str(&payload.owner_id)
     //    .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     if payload.file_name.trim().is_empty() {
-        println!("Fails here");
+        println!("Name empty");
         return Err(GetFilesError::InternalError("Invalid name".to_string()));
     }
     let name = payload.file_name.trim();
     let pool = &state.pool;
-    let success = match sqlx::query(r#"UPDATE files
+    match sqlx::query(r#"UPDATE files
                                SET file_name = ($1)
                                WHERE file_id = ($2);"#)
         .bind(&name)
         .bind(&file_id)
         .execute(pool)
         .await {
-            Ok(_) => "File renamed",
-            Err(e) => return Err(GetFilesError::InternalError(e.to_string())),
-        };
-    println!("{}",success.to_string());
-    Ok(Json(success.to_string()))
+            Ok(_) => Ok(Json("File renamed".to_string())),
+            Err(e) => {
+                        eprintln!("Error {:?}", e);
+                        return Err(GetFilesError::InternalError(e.to_string()))
+        }
 
+    }
 }
