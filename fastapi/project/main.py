@@ -86,7 +86,7 @@ async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_ac
         return [] 
     data = files.json()
     
-    if not files:
+    if not data:
         return []
     return data
 
