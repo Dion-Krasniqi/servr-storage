@@ -198,6 +198,25 @@ pub async fn upload_file(State(state): State<AppState>,
   };
 
   let file_size = data.len() as i64; 
+  let owner_id = Uuid::parse_str(&user_id)
+      .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+
+  let pool = &state.pool;
+  let storage_used: i64 = sqlx::query_scalar("SELECT storage_used
+                                          FROM users
+                                          WHERE user_id = ($1);")
+      .bind(&owner_id)
+      .fetch_one(pool)
+      .await
+      .map_err(|e| GetFilesError::InternalError("Failed to get storage".to_string()))?;
+
+  if (file_size + storage_used) > 1048576 * 2 {
+        return Err(GetFilesError::InternalError("Not enough storage".to_string())); 
+  } else {
+        //proceed
+  }
+
+
   let file_id = Uuid::new_v4();
 
   let extension = std::path::Path::new(&filename)
@@ -210,9 +229,6 @@ pub async fn upload_file(State(state): State<AppState>,
       .send()
       .await
       .map_err(|e| GetFilesError::S3Error(e.into()))?;
-
-  let owner_id = Uuid::parse_str(&user_id)
-      .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
 
   let parent_id = match payload_parent_id.is_empty() {
         true => None,
@@ -235,7 +251,6 @@ pub async fn upload_file(State(state): State<AppState>,
 
   };
   
-  let pool = &state.pool;
   sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
                size, extension, file_type, created_at, last_modified, shared_with)
                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
