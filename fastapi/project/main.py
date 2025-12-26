@@ -106,4 +106,13 @@ async def rename_file(form: RenameForm):
                                     "file_id": form.file_id,
                                     "file_name": form.file_name,
                                     },)
-            
+@app.post("/create-folder")
+async def create_folder(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)], 
+                        form: FolderForm):
+    owner_id = current_user.user_id
+    async with httpx.AsyncClient() as client:
+        await client.post('http://rust:3000/create-folder', json={
+                                    "owner_id": str(owner_id),
+                                    "folder_name": form.folder_name,
+                                    "parent_id":"",},)
+

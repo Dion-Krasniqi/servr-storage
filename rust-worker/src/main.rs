@@ -65,6 +65,7 @@ async fn main() -> Result<(), s3::Error> {
         .route("/delete-file", post(delete_file))
         .route("/create-bucket", post(create_bucket))
         .route("/rename-file", post(rename_file))
+        .route("/create-folder", post(create_folder))
         .route("/", get(hello_world))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

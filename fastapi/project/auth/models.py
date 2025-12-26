@@ -46,3 +46,6 @@ class RenameForm(BaseModel):
 
 class DeleteForm(BaseModel):
     file_id: str
+
+class FolderForm(BaseModel):
+    folder_name: str

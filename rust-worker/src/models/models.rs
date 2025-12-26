@@ -50,8 +50,8 @@ pub struct FileResponse {
 // uploading
 #[derive(Debug,Deserialize)]
 pub struct CreateFolderForm {
-    pub folder_name: String,
     pub owner_id: String,
+    pub folder_name: String,
     pub parent_id: String,
 }
 
