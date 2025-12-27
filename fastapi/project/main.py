@@ -114,5 +114,5 @@ async def create_folder(current_user: Annotated[DatabaseUser, Depends(get_curren
         await client.post('http://rust:3000/create-folder', json={
                                     "owner_id": str(owner_id),
                                     "folder_name": form.folder_name,
-                                    "parent_id":"",},)
+                                    "parent_id":form.parent_id,},)
 

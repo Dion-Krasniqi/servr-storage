@@ -49,3 +49,4 @@ class DeleteForm(BaseModel):
 
 class FolderForm(BaseModel):
     folder_name: str
+    parent_id: str
