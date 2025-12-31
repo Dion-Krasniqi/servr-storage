@@ -266,7 +266,18 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(shared_with)
       .execute(pool).await
       .map_err(|e| GetFilesError::InternalError(e.to_string()));
-                             
+  if (parent_id.is_some()) {
+        sqlx::query("UPDATE files
+                    SET size = size + $1
+                    WHERE file_id = $2;")
+            .bind(file_size)
+            .bind(&parent_id)
+            .execute(pool)
+            .await.map_err(|e| GetFilesError::InternalError(e.to_string()));
+
+
+  }                             
+
   match sqlx::query("UPDATE users
                      SET storage_used = storage_used + $1
                      WHERE user_id = $2;")
@@ -297,9 +308,9 @@ pub async fn delete_file(State(state): State<AppState>,
     let pool = &state.pool;
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    let (extension, size): (Option<String>, i64) = sqlx::query_as("DELETE FROM files
+    let (extension, size, parent_id): (Option<String>, i64, Option<String>) = sqlx::query_as("DELETE FROM files
                                      WHERE file_id = ($1) 
-                                     RETURNING extension, size;")//check if user owns file
+                                     RETURNING extension, size, parent_id;")//check if user owns file
         .bind(&file_id)
         .fetch_one(pool)
         .await
@@ -313,7 +324,15 @@ pub async fn delete_file(State(state): State<AppState>,
         .execute(pool)
         .await
         .map_err(|e| GetFilesError::InternalError(e.to_string()));  
-    
+    if (parent_id.is_some()){
+        sqlx::query("UPDATE files
+                     SET size = size - $1
+                     WHERE file_id = $2;")
+            .bind(size)
+            .bind(&parent_id)
+            .execute(pool)
+            .await.map_err(|e| GetFilesError::InternalError(e.to_string()));
+    }; 
     let key = match extension {
         Some(ext) => format!("{}.{}", payload.file_id, ext),
         None => payload.file_id.clone(),
