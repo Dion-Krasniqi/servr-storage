@@ -1,3 +1,8 @@
+
+<div align="center">
+  <img src="showcase/logo.png" alt="Home Page" width="22%">
+</div>
+
 # servr-storage
 Serv-r Storage is an open-source cloud storage platform. This repo makes up the backend and as of now its split into 3 main components: Python API using Fastapi to handle main routing and authentication; Rust for file and object storage related stuff and Cloudflares R2 for the actual object storage. 
 
@@ -6,7 +11,7 @@ Simple setup mainly using FastAPI and SQLAlchemy. Website sends requests here, h
 This part will eventually be merged with rust aswell.
 
 ## Rust
-Python sends the requests here when it comes to the non-auth stuff. Http worker with Tokio, handles most of file/object-storage related functions, all defined in the files/methods file. SQLX for database stuff, and aws-s3 for storage. Most functions have the same-ish logic, just some more/less stuff.  
+Python sends the requests here when it comes to the non-auth stuff. Http worker with Tokio, handles most of file/object-storage related functions, all defined in the files/methods file. SQLX for database stuff, and aws-s3 methods for storage. Most functions have the same-ish logic, just some more/less stuff.  
 
 
 ## Object Storage

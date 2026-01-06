@@ -266,27 +266,25 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(shared_with)
       .execute(pool).await
       .map_err(|e| GetFilesError::InternalError(e.to_string()));
+  // basically match parent_id { Some(val) => {let parent_id = val ...}, None =>{}}
+  if let Some(parent_id) = parent_id {
+        sqlx::query("WITH RECURSIVE ancestors AS (
+                                                    SELECT file_id, parent_id
+                                                    FROM files
+                                                    WHERE file_id = $1
+                                                    UNION ALL
 
-  if (parent_id.is_some()) {
-        let mut root_parent: Option<String> = sqlx::query_scalar("UPDATE files
-                                              SET size = size + $1
-                                              WHERE file_id = $2
-                                              RETURNING parent_id;")
+                                                    SELECT f.file_id, f.parent_id
+                                                    FROM files f
+                                                    JOIN ancestors a ON f.file_id = a.parent_id
+                                                 )
+                     UPDATE FILES
+                     SET size = size + $2
+                     WHERE file_id IN (SELECT file_id FROM ancestors);")
+            .bind(parent_id)
             .bind(file_size)
-            .bind(&parent_id)
-            .fetch_optional(pool)
-            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-        while (root_parent.is_some()){
-            root_parent = sqlx::query_scalar("UPDATE files
-                                              SET size = size + $1
-                                              WHERE file_id = $2
-                                              RETURNING parent_id;")
-            .bind(file_size)
-            .bind(&root_parent)
-            .fetch_optional(pool)
-            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-        }
-       
+            .execute(pool)
+            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;      
   }                             
 
   match sqlx::query("UPDATE users
