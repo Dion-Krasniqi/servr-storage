@@ -75,9 +75,9 @@ pub async fn get_files(State(state): State<AppState>,
     println!("We are fetching!");
     let client = &state.client;
     if (check_bucket(&client, &payload.owner_id)).await? {
-        println!("Bucked does exist");    
+        println!("Bucket does exist");    
     } else {
-      println!("Users bucket not found!");
+      println!("User bucket not found!");
       return Err(GetFilesError::NotFound("User bucket not found".to_string()));
     };
     
@@ -266,16 +266,27 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(shared_with)
       .execute(pool).await
       .map_err(|e| GetFilesError::InternalError(e.to_string()));
+
   if (parent_id.is_some()) {
-        sqlx::query("UPDATE files
-                    SET size = size + $1
-                    WHERE file_id = $2;")
+        let mut root_parent: Option<String> = sqlx::query_scalar("UPDATE files
+                                              SET size = size + $1
+                                              WHERE file_id = $2
+                                              RETURNING parent_id;")
             .bind(file_size)
             .bind(&parent_id)
-            .execute(pool)
-            .await.map_err(|e| GetFilesError::InternalError(e.to_string()));
-
-
+            .fetch_optional(pool)
+            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+        while (root_parent.is_some()){
+            root_parent = sqlx::query_scalar("UPDATE files
+                                              SET size = size + $1
+                                              WHERE file_id = $2
+                                              RETURNING parent_id;")
+            .bind(file_size)
+            .bind(&root_parent)
+            .fetch_optional(pool)
+            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+        }
+       
   }                             
 
   match sqlx::query("UPDATE users

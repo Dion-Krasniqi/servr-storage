@@ -59,8 +59,10 @@ async def create_user(form: SignUpForm, session: AsyncSession = Depends(get_db))
     return {"message":"sign-up"}
 @app.post("/upload-file")
 async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_active_user)],
-                      file: UploadFile=File(...)):
+                      file: UploadFile=File(...),
+                      parent_id: str | None = Form(None)):
     user_id = current_user.user_id
+    print(parent_id)
     async with httpx.AsyncClient() as client:
         await client.post('http://rust:3000/upload-file',
                           files={
@@ -68,7 +70,7 @@ async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_a
                           },
                           data={
                               "user_id":str(user_id),
-                              "parent_id":"",
+                              "parent_id":parent_id or "",
                           },
                           )
 
