@@ -250,7 +250,10 @@ pub async fn upload_file(State(state): State<AppState>,
       _ => FileType::Other,
 
   };
-  
+// building query
+  let mut upload_statement = "INSERT INTO files (file_id, owner_id, parent_id, file_name,
+               size, extension, file_type, created_at, last_modified, shared_with)
+               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);";
   sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
                size, extension, file_type, created_at, last_modified, shared_with)
                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
