@@ -251,10 +251,13 @@ pub async fn upload_file(State(state): State<AppState>,
 
   };
 // building query
-  let mut upload_statement = "INSERT INTO files (file_id, owner_id, parent_id, file_name,
-               size, extension, file_type, created_at, last_modified, shared_with)
-               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);";
-  sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
+ let user_query = sqlx::query("UPDATE users
+                    SET storage_used = storage_used + $1
+                    WHERE user_id = $2;")
+                    .bind(file_size)
+                    .bind(&owner_id);
+
+ let file_query = sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
                size, extension, file_type, created_at, last_modified, shared_with)
                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
       .bind(&file_id)
@@ -266,9 +269,15 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(&file_type)
       .bind(&created_at)
       .bind(&last_modified)
-      .bind(shared_with)
-      .execute(pool).await
-      .map_err(|e| GetFilesError::InternalError(e.to_string()));
+      .bind(shared_with);
+      /*.execute(pool).await
+      .map_err(|e| GetFilesError::InternalError(e.to_string()));*/
+      
+  use sqlx::Acquire;
+  let mut conn = pool.acquire().await.unwrap();
+  let mut tx = conn.begin().await.unwrap();
+  file_query.execute(&mut *tx).await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+  user_query.execute(&mut *tx).await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
   // basically match parent_id { Some(val) => {let parent_id = val ...}, None =>{}}
   if let Some(parent_id) = parent_id {
         sqlx::query("WITH RECURSIVE ancestors AS (
@@ -286,15 +295,22 @@ pub async fn upload_file(State(state): State<AppState>,
                      WHERE file_id IN (SELECT file_id FROM ancestors);")
             .bind(parent_id)
             .bind(file_size)
-            .execute(pool)
+            .execute(&mut *tx)
             .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;      
-  }                             
-
-  match sqlx::query("UPDATE users
-                     SET storage_used = storage_used + $1
-                     WHERE user_id = $2;")
-      .bind(file_size)
+  }  
+  
+  /*
+  match sqlx::query(upload_statement)
+      .bind(&file_id)
       .bind(&owner_id)
+      .bind(&parent_id)
+      .bind(name.to_str())
+      .bind(file_size)
+      .bind(&extension)
+      .bind(&file_type)
+      .bind(&created_at)
+      .bind(&last_modified)
+      .bind(shared_with)
       .execute(pool).await {
             Ok(_) => Ok(Json("File uploaded succesfully".to_string())),
             Err(e) => { 
@@ -302,6 +318,15 @@ pub async fn upload_file(State(state): State<AppState>,
                         return Err(GetFilesError::InternalError(e.to_string()))
         }
       }
+    */
+    match tx.commit().await {
+            Ok(_) => Ok(Json("File uploaded succesfully".to_string())),
+            Err(e) => { 
+                        eprintln!("Error {:?}", e);
+                        return Err(GetFilesError::InternalError(e.to_string()))
+        }
+      }
+    
 }
 
 pub async fn delete_file(State(state): State<AppState>,
