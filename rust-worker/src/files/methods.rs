@@ -241,19 +241,26 @@ pub async fn upload_file(State(state): State<AppState>,
       _ => FileType::Other,
 
   };
+ //maybe make this a function
  use sqlx::Acquire;
- let mut conn = pool.acquire().await.unwrap();
- let mut tx = conn.begin().await.unwrap();
+ let mut conn = pool.acquire().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+ let mut tx = conn.begin().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
  // user table update
- sqlx::query("UPDATE users
+ match sqlx::query("UPDATE users
               SET storage_used = storage_used + $1
               WHERE user_id = $2;")
               .bind(file_size)
               .bind(&owner_id)
               .execute(&mut *tx)
-              .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?; //rollback?
+              .await {
+                   Ok(_) => println!("Parent Update"),
+                   Err(e) => {
+                              eprintln!("Error {:?}", e);
+                              return Err(GetFilesError::InternalError(e.to_string()))
+                            }
+            } //rollback?
  // file table update
- sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
+ match sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
               size, extension, file_type, created_at, last_modified, shared_with)
               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
       .bind(&file_id)
@@ -267,10 +274,16 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(&last_modified)
       .bind(shared_with)
       .execute(&mut *tx)
-      .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+      .await {
+                   Ok(_) => println!("Parent Update"),
+                   Err(e) => {
+                              eprintln!("Error {:?}", e);
+                              return Err(GetFilesError::InternalError(e.to_string()))
+                            }
+            }
   // basically match parent_id { Some(val) => {let parent_id = val ...}, None =>{}}
   if let Some(parent_id) = parent_id {
-        sqlx::query("WITH RECURSIVE ancestors AS (
+        match sqlx::query("WITH RECURSIVE ancestors AS (
                                                     SELECT file_id, parent_id
                                                     FROM files
                                                     WHERE file_id = $1
@@ -286,23 +299,21 @@ pub async fn upload_file(State(state): State<AppState>,
             .bind(parent_id)
             .bind(file_size)
             .execute(&mut *tx)
-            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?; // and here
+            .await {
+                   Ok(_) => println!("Parent Update"),
+                   Err(e) => {
+                              eprintln!("Error {:?}", e);
+                              return Err(GetFilesError::InternalError(e.to_string()))
+                            }
+            }
   }  
-
+  tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
   let s3_name = file_id.to_string() + "." + &extension;                        
   match client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
           .content_type(&content_type)
           .send()
           .await {
-                   Ok(_) => {
-                             match tx.commit().await {
-                                Ok(_) => Ok(Json("File uploaded succesfully".to_string())),
-                                Err(e) => { 
-                                    eprintln!("Error {:?}", e);
-                                    return Err(GetFilesError::InternalError(e.to_string()))
-                                }           
-                            }
-                   },
+                   Ok(_) => Ok(Json("File uploaded succesfully".to_string())),
                    Err(e) => {
                               eprintln!("Error {:?}", e);
                               return Err(GetFilesError::InternalError(e.to_string()))
@@ -326,11 +337,17 @@ pub async fn delete_file(State(state): State<AppState>,
     let pool = &state.pool;
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    let (extension, size, parent_id): (Option<String>, i64, Option<String>) = sqlx::query_as("DELETE FROM files
+    
+
+    use sqlx::Acquire;
+    let mut conn = pool.acquire().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    let mut tx = conn.begin().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+
+    let (extension, size, parent_id): (Option<String>, i64, Option<Uuid>) = sqlx::query_as("DELETE FROM files
                                      WHERE file_id = ($1) 
                                      RETURNING extension, size, parent_id;")//check if user owns file
         .bind(&file_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| GetFilesError::InternalError("Database delete failed".to_string()))?;
 
@@ -339,18 +356,30 @@ pub async fn delete_file(State(state): State<AppState>,
                  WHERE user_id = $2;")
         .bind(size)
         .bind(&owner_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
-        .map_err(|e| GetFilesError::InternalError(e.to_string()));  
-    if (parent_id.is_some()){
-        sqlx::query("UPDATE files
-                     SET size = size - $1
-                     WHERE file_id = $2;")
+        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;  
+
+    if let Some(parent_id) = parent_id {
+        sqlx::query("WITH RECURSIVE ancestors AS (
+                                                    SELECT file_id, parent_id
+                                                    FROM files
+                                                    WHERE file_id = $1
+                                                    UNION ALL
+
+                                                    SELECT f.file_id, f.parent_id
+                                                    FROM files f
+                                                    JOIN ancestors a ON f.file_id = a.parent_id
+                                                 )
+                     UPDATE FILES
+                     SET size = size - $2
+                     WHERE file_id IN (SELECT file_id FROM ancestors);")
+            .bind(parent_id)
             .bind(size)
-            .bind(&parent_id)
-            .execute(pool)
-            .await.map_err(|e| GetFilesError::InternalError(e.to_string()));
-    }; 
+            .execute(&mut *tx)
+            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    } 
+    tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     let key = match extension {
         Some(ext) => format!("{}.{}", payload.file_id, ext),
         None => payload.file_id.clone(),
