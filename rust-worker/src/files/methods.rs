@@ -165,6 +165,7 @@ pub async fn create_folder(State(state): State<AppState>,
 //2mb limit 
 pub async fn upload_file(State(state): State<AppState>,
                          mut payload: Multipart)->Result<Json<String>, GetFilesError> {
+
   println!("UploadFile Ran");
   let mut data = Bytes::new();
   let mut filename = String::new(); 
@@ -216,20 +217,11 @@ pub async fn upload_file(State(state): State<AppState>,
         //proceed
   }
 
-
   let file_id = Uuid::new_v4();
-
   let extension = std::path::Path::new(&filename)
       .extension()
       .and_then(|s| s.to_str())
       .unwrap_or("");
-  let s3_name = file_id.to_string() + "." + &extension;                        
-  client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
-      .content_type(&content_type)
-      .send()
-      .await
-      .map_err(|e| GetFilesError::S3Error(e.into()))?;
-
   let parent_id = match payload_parent_id.is_empty() {
         true => None,
         false => Some(Uuid::parse_str(&payload_parent_id)
@@ -240,7 +232,6 @@ pub async fn upload_file(State(state): State<AppState>,
   let created_at = Some(Utc::now());
   let last_modified = Some(Utc::now());
   let shared_with: Vec<Uuid> = Vec::new();
-  
   let file_type = match content_type.as_str() {
       ctype if ctype.starts_with("image/") => FileType::Media,
       ctype if ctype.starts_with("video/") => FileType::Media,
@@ -250,16 +241,21 @@ pub async fn upload_file(State(state): State<AppState>,
       _ => FileType::Other,
 
   };
-// building query
- let user_query = sqlx::query("UPDATE users
-                    SET storage_used = storage_used + $1
-                    WHERE user_id = $2;")
-                    .bind(file_size)
-                    .bind(&owner_id);
-
- let file_query = sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
-               size, extension, file_type, created_at, last_modified, shared_with)
-               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
+ use sqlx::Acquire;
+ let mut conn = pool.acquire().await.unwrap();
+ let mut tx = conn.begin().await.unwrap();
+ // user table update
+ sqlx::query("UPDATE users
+              SET storage_used = storage_used + $1
+              WHERE user_id = $2;")
+              .bind(file_size)
+              .bind(&owner_id)
+              .execute(&mut *tx)
+              .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?; //rollback?
+ // file table update
+ sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
+              size, extension, file_type, created_at, last_modified, shared_with)
+              VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
       .bind(&file_id)
       .bind(&owner_id)
       .bind(&parent_id)
@@ -269,15 +265,9 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(&file_type)
       .bind(&created_at)
       .bind(&last_modified)
-      .bind(shared_with);
-      /*.execute(pool).await
-      .map_err(|e| GetFilesError::InternalError(e.to_string()));*/
-      
-  use sqlx::Acquire;
-  let mut conn = pool.acquire().await.unwrap();
-  let mut tx = conn.begin().await.unwrap();
-  file_query.execute(&mut *tx).await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-  user_query.execute(&mut *tx).await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+      .bind(shared_with)
+      .execute(&mut *tx)
+      .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
   // basically match parent_id { Some(val) => {let parent_id = val ...}, None =>{}}
   if let Some(parent_id) = parent_id {
         sqlx::query("WITH RECURSIVE ancestors AS (
@@ -296,37 +286,28 @@ pub async fn upload_file(State(state): State<AppState>,
             .bind(parent_id)
             .bind(file_size)
             .execute(&mut *tx)
-            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;      
+            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?; // and here
   }  
-  
-  /*
-  match sqlx::query(upload_statement)
-      .bind(&file_id)
-      .bind(&owner_id)
-      .bind(&parent_id)
-      .bind(name.to_str())
-      .bind(file_size)
-      .bind(&extension)
-      .bind(&file_type)
-      .bind(&created_at)
-      .bind(&last_modified)
-      .bind(shared_with)
-      .execute(pool).await {
-            Ok(_) => Ok(Json("File uploaded succesfully".to_string())),
-            Err(e) => { 
-                        eprintln!("Error {:?}", e);
-                        return Err(GetFilesError::InternalError(e.to_string()))
-        }
-      }
-    */
-    match tx.commit().await {
-            Ok(_) => Ok(Json("File uploaded succesfully".to_string())),
-            Err(e) => { 
-                        eprintln!("Error {:?}", e);
-                        return Err(GetFilesError::InternalError(e.to_string()))
-        }
-      }
-    
+
+  let s3_name = file_id.to_string() + "." + &extension;                        
+  match client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
+          .content_type(&content_type)
+          .send()
+          .await {
+                   Ok(_) => {
+                             match tx.commit().await {
+                                Ok(_) => Ok(Json("File uploaded succesfully".to_string())),
+                                Err(e) => { 
+                                    eprintln!("Error {:?}", e);
+                                    return Err(GetFilesError::InternalError(e.to_string()))
+                                }           
+                            }
+                   },
+                   Err(e) => {
+                              eprintln!("Error {:?}", e);
+                              return Err(GetFilesError::InternalError(e.to_string()))
+                            }
+                        }
 }
 
 pub async fn delete_file(State(state): State<AppState>,
