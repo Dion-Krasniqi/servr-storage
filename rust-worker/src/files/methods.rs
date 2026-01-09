@@ -307,13 +307,19 @@ pub async fn upload_file(State(state): State<AppState>,
                             }
             }
   }  
-  tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+  //tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
   let s3_name = file_id.to_string() + "." + &extension;                        
   match client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
           .content_type(&content_type)
           .send()
           .await {
+                   Ok(_) => {match tx.commit().await {
                    Ok(_) => Ok(Json("File uploaded succesfully".to_string())),
+                   Err(e) => {
+                              eprintln!("Error {:?}", e);
+                              return Err(GetFilesError::InternalError(e.to_string()))
+                            }
+                        }},
                    Err(e) => {
                               eprintln!("Error {:?}", e);
                               return Err(GetFilesError::InternalError(e.to_string()))
@@ -379,14 +385,21 @@ pub async fn delete_file(State(state): State<AppState>,
             .execute(&mut *tx)
             .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     } 
-    tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    let key = match extension {
+    //tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    let ext = extension.clone().unwrap_or_default();
+    let key = payload.file_id.to_string() + "." + &ext;
+    /*let key = match extension {
         Some(ext) => format!("{}.{}", payload.file_id, ext),
         None => payload.file_id.clone(),
-    };
+    };*/
     match client.delete_object().bucket(&payload.owner_id).key(key)
         .send().await {
-        Ok(_) => Ok(Json("File Deleted".to_string())),
+        Ok(_) => { match tx.commit().await {
+                            Ok(_) => Ok(Json("File Deleted".to_string())),
+                            Err(e) => {
+                                    eprintln!("Error {:?}", e);
+                                    return Err(GetFilesError::InternalError(e.to_string()))
+                            }}},
         Err(e) => {
                     eprintln!("Error {:?}", e);
                     return Err(GetFilesError::InternalError(e.to_string()))
