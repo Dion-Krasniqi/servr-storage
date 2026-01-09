@@ -102,9 +102,12 @@ async def delete_file(current_user: Annotated[DatabaseUser, Depends(get_current_
                                     "file_id":form.file_id,},) 
     return {"response": response.is_success}
 @app.post("/rename-file")
-async def rename_file(form: RenameForm):
+async def rename_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)],
+                      form: RenameForm):
+    owner_id = current_user.user_id
     async with httpx.AsyncClient() as client:
         await client.post('http://rust:3000/rename-file', json={
+                                    "owner_id": str(owner_id),
                                     "file_id": form.file_id,
                                     "file_name": form.file_name,
                                     },)

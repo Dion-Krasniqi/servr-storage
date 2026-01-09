@@ -350,9 +350,10 @@ pub async fn delete_file(State(state): State<AppState>,
     let mut tx = conn.begin().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
 
     let (extension, size, parent_id): (Option<String>, i64, Option<Uuid>) = sqlx::query_as("DELETE FROM files
-                                     WHERE file_id = ($1) 
-                                     RETURNING extension, size, parent_id;")//check if user owns file
+                                     WHERE file_id = ($1) AND owner_id = ($2)
+                                     RETURNING extension, size, parent_id;")
         .bind(&file_id)
+        .bind(&owner_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| GetFilesError::InternalError("Database delete failed".to_string()))?;
@@ -412,19 +413,21 @@ pub async fn rename_file(State(state): State<AppState>,
     println!("Rename ran");
     let file_id = Uuid::parse_str(&payload.file_id)
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    //let owner_id = Uuid::parse_str(&payload.owner_id)
-    //    .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    let owner_id = Uuid::parse_str(&payload.owner_id)
+        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     if payload.file_name.trim().is_empty() {
         println!("Name empty");
         return Err(GetFilesError::InternalError("Invalid name".to_string()));
     }
     let name = payload.file_name.trim();
     let pool = &state.pool;
+    // maybe us these raw stuffs up aswell
     match sqlx::query(r#"UPDATE files
-                               SET file_name = ($1)
-                               WHERE file_id = ($2);"#)
+                         SET file_name = ($1)
+                         WHERE file_id = ($2) AND owner_id = ($3);"#)
         .bind(&name)
         .bind(&file_id)
+        .bind(&owner_id)
         .execute(pool)
         .await {
             Ok(_) => Ok(Json("File renamed".to_string())),

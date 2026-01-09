@@ -60,12 +60,13 @@ pub struct CreateFolderForm {
 //deleting
 #[derive(Debug,Deserialize)]
 pub struct DeleteFileForm {
-    pub owner_id: String, //lowkey not
+    pub owner_id: String,
     pub file_id: String,
 }
 //renaming
 #[derive(Debug,Deserialize)]
 pub struct RenameFileForm {
+    pub owner_id: String,
     pub file_id: String,
     pub file_name: String,
 }
