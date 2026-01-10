@@ -90,7 +90,7 @@ pub async fn get_files(State(state): State<AppState>,
     */
     let pool = &state.pool;
     
-    let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id=$1;")
+    let files = sqlx::query_as::<_,DatabaseFile>(r#"SELECT * FROM files where owner_id = ($1);"#)
         .bind(&owner_id)
         .fetch_all(pool)
         .await
@@ -142,9 +142,9 @@ pub async fn create_folder(State(state): State<AppState>,
     let last_modified = Some(Utc::now());
     let shared_with: Vec<Uuid> = Vec::new();
     
-    match sqlx::query("INSERT into files (file_id, owner_id, parent_id, file_name,
+    match sqlx::query(r#"INSERT into files (file_id, owner_id, parent_id, file_name,
                        size, file_type, created_at, last_modified, shared_with) 
-                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);")
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);"#)
         .bind(&folder_id)
         .bind(&user_id)
         .bind(&parent_id)
@@ -203,9 +203,9 @@ pub async fn upload_file(State(state): State<AppState>,
       .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
 
   let pool = &state.pool;
-  let storage_used: i64 = sqlx::query_scalar("SELECT storage_used
-                                          FROM users
-                                          WHERE user_id = ($1);")
+  let storage_used: i64 = sqlx::query_scalar(r#"SELECT storage_used
+                                                FROM users
+                                                WHERE user_id = ($1);"#)
       .bind(&owner_id)
       .fetch_one(pool)
       .await
@@ -246,9 +246,9 @@ pub async fn upload_file(State(state): State<AppState>,
  let mut conn = pool.acquire().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
  let mut tx = conn.begin().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
  // user table update
- match sqlx::query("UPDATE users
-              SET storage_used = storage_used + $1
-              WHERE user_id = $2;")
+ match sqlx::query(r#"UPDATE users
+              SET storage_used = storage_used + ($1)
+              WHERE user_id = ($2);"#)
               .bind(file_size)
               .bind(&owner_id)
               .execute(&mut *tx)
@@ -260,9 +260,9 @@ pub async fn upload_file(State(state): State<AppState>,
                             }
             } //rollback?
  // file table update
- match sqlx::query("INSERT INTO files (file_id, owner_id, parent_id, file_name,
+ match sqlx::query(r#"INSERT INTO files (file_id, owner_id, parent_id, file_name,
               size, extension, file_type, created_at, last_modified, shared_with)
-              VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);")
+              VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);"#)
       .bind(&file_id)
       .bind(&owner_id)
       .bind(&parent_id)
@@ -283,10 +283,10 @@ pub async fn upload_file(State(state): State<AppState>,
             }
   // basically match parent_id { Some(val) => {let parent_id = val ...}, None =>{}}
   if let Some(parent_id) = parent_id {
-        match sqlx::query("WITH RECURSIVE ancestors AS (
+        match sqlx::query(r#"WITH RECURSIVE ancestors AS (
                                                     SELECT file_id, parent_id
                                                     FROM files
-                                                    WHERE file_id = $1
+                                                    WHERE file_id = ($1)
                                                     UNION ALL
 
                                                     SELECT f.file_id, f.parent_id
@@ -294,8 +294,8 @@ pub async fn upload_file(State(state): State<AppState>,
                                                     JOIN ancestors a ON f.file_id = a.parent_id
                                                  )
                      UPDATE FILES
-                     SET size = size + $2
-                     WHERE file_id IN (SELECT file_id FROM ancestors);")
+                     SET size = size + ($2)
+                     WHERE file_id IN (SELECT file_id FROM ancestors);"#)
             .bind(parent_id)
             .bind(file_size)
             .execute(&mut *tx)
@@ -349,18 +349,18 @@ pub async fn delete_file(State(state): State<AppState>,
     let mut conn = pool.acquire().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     let mut tx = conn.begin().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
 
-    let (extension, size, parent_id): (Option<String>, i64, Option<Uuid>) = sqlx::query_as("DELETE FROM files
+    let (extension, size, parent_id): (Option<String>, i64, Option<Uuid>) = sqlx::query_as(r#"DELETE FROM files
                                      WHERE file_id = ($1) AND owner_id = ($2)
-                                     RETURNING extension, size, parent_id;")
+                                     RETURNING extension, size, parent_id;"#)
         .bind(&file_id)
         .bind(&owner_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| GetFilesError::InternalError("Database delete failed".to_string()))?;
 
-    sqlx::query("UPDATE users
-                 SET storage_used = storage_used - $1
-                 WHERE user_id = $2;")
+    sqlx::query(r#"UPDATE users
+                 SET storage_used = storage_used - ($1)
+                 WHERE user_id = ($2);"#)
         .bind(size)
         .bind(&owner_id)
         .execute(&mut *tx)
@@ -368,10 +368,10 @@ pub async fn delete_file(State(state): State<AppState>,
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;  
 
     if let Some(parent_id) = parent_id {
-        sqlx::query("WITH RECURSIVE ancestors AS (
+        sqlx::query(r#"WITH RECURSIVE ancestors AS (
                                                     SELECT file_id, parent_id
                                                     FROM files
-                                                    WHERE file_id = $1
+                                                    WHERE file_id = ($1)
                                                     UNION ALL
 
                                                     SELECT f.file_id, f.parent_id
@@ -379,8 +379,8 @@ pub async fn delete_file(State(state): State<AppState>,
                                                     JOIN ancestors a ON f.file_id = a.parent_id
                                                  )
                      UPDATE FILES
-                     SET size = size - $2
-                     WHERE file_id IN (SELECT file_id FROM ancestors);")
+                     SET size = size - ($2)
+                     WHERE file_id IN (SELECT file_id FROM ancestors);"#)
             .bind(parent_id)
             .bind(size)
             .execute(&mut *tx)
@@ -421,7 +421,6 @@ pub async fn rename_file(State(state): State<AppState>,
     }
     let name = payload.file_name.trim();
     let pool = &state.pool;
-    // maybe us these raw stuffs up aswell
     match sqlx::query(r#"UPDATE files
                          SET file_name = ($1)
                          WHERE file_id = ($2) AND owner_id = ($3);"#)
