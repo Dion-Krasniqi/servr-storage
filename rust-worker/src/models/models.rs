@@ -29,8 +29,10 @@ pub struct DatabaseFile {
     pub file_type: FileType,
     pub created_at: Option<DateTime<Utc>>,
     pub last_modified: Option<DateTime<Utc>>,
+    pub url: Option<String>,
     pub shared_with: Vec<Uuid>,
 }
+//same thing for now
 #[derive(Debug, Serialize)]
 pub struct FileResponse {
     //pub file: DatabaseFile

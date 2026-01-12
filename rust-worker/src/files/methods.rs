@@ -97,16 +97,26 @@ pub async fn get_files(State(state): State<AppState>,
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     
     let mut response = Vec::with_capacity(files.len());
-    for file in files {
-        let ext = file.extension.clone().unwrap_or_default();
-        let key = file.file_id.to_string() + "." + &ext;
-        
-        /*let url = match (file.file_type == FileType::Media){
-            true => get_presigned_url(client, &payload.owner_id, &key).await?,  
-            _ => "".to_string(),
-        };*/
-        
-        let url = get_presigned_url(client, &payload.owner_id, &key).await?;//possibly handle cases
+    let cur_date = Utc::now();
+    // maybe not mut just create a new url object
+    for mut file in files {
+        let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
+                        || file.last_modified.is_none() 
+                        || file.last_modified.map(|date| cur_date - date > chrono::Duration::days(6)).unwrap_or(true);
+        if (update_url) {
+            sqlx::query(r#"UPDATE files
+                           SET last_modified = ($1)
+                           WHERE file_id = ($2);"#) 
+                .bind(&cur_date)
+                .bind(&file.file_id)
+                .execute(pool)
+                .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+
+            let ext = file.extension.clone().unwrap_or_default();
+            let key = file.file_id.to_string() + "." + &ext;
+            //file.last_modified = Some(cur_date);
+            file.url = Some(get_presigned_url(client, &payload.owner_id, &key).await?);//possibly handle cases
+        }
         response.push(FileResponse {
             file_id: file.file_id,
             owner_id: file.owner_id,
@@ -116,9 +126,9 @@ pub async fn get_files(State(state): State<AppState>,
             size: file.size,
             file_type: file.file_type,
             created_at: file.created_at,
-            last_modified: file.last_modified,
+            last_modified: Some(cur_date),
             shared_with: file.shared_with,
-            url:url,
+            url:file.url.expect("url must be set"),
         });
     }
     Ok(Json(response))
