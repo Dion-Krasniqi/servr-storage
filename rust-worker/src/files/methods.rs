@@ -88,6 +88,7 @@ pub async fn get_files(State(state): State<AppState>,
     /*    let key = thingy.key().unwrap();
         let object_url = get_presigned_url(client, &payload.owner_id, key).await?;
     */
+    
     let pool = &state.pool;
     
     let files = sqlx::query_as::<_,DatabaseFile>(r#"SELECT * FROM files where owner_id = ($1);"#)

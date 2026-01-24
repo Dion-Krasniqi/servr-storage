@@ -16,6 +16,9 @@ async fn hello_world() -> &'static str {
     "Hello"
 }
 
+use moka::sync::Cache;
+use std::thread;
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() -> Result<(), s3::Error> {
 
@@ -58,7 +61,13 @@ async fn main() -> Result<(), s3::Error> {
 
     let client = s3::Client::new(&config);
     
-    let state = AppState {pool, client};
+    //let state = AppState {pool, client};
+    // cache setup
+    const NUM_THREADS: usize = 16;
+    const NUM_KEYS_PER_THREAD: usize = 64;
+    let cache = Cache::new(100);
+
+    let alt_state = AppState {pool, client, cache};
     let app = Router::new()
         .route("/get-files", post(get_files))
         .route("/upload-file", post(upload_file))
@@ -67,7 +76,7 @@ async fn main() -> Result<(), s3::Error> {
         .route("/rename-file", post(rename_file))
         .route("/create-folder", post(create_folder))
         .route("/", get(hello_world))
-        .with_state(state);
+        .with_state(alt_state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     
     

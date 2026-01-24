@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use axum::{response::IntoResponse, http::StatusCode};
 use axum_extra::extract::multipart::MultipartError;
 use failure;
+use moka::sync::Cache;
 
 #[derive(Deserialize)]
 pub struct OwnerId {
@@ -77,6 +78,7 @@ pub struct RenameFileForm {
 pub struct AppState {
     pub pool: PgPool,
     pub client: s3::Client,
+    pub cache: Cache<String,String>,// make the 2nd string the actual val obv
     
 }
 
