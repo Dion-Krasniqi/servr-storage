@@ -19,6 +19,7 @@ CREATE TABLE files (
 	file_type FILETYPE NOT NULL,
 	created_at TIMESTAMPTZ DEFAULT NOW(),
 	last_modified TIMESTAMPTZ DEFAULT NOW(),
+	url VARCHAR,
 	shared_with UUID[]
 );	
 

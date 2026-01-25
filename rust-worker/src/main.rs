@@ -65,7 +65,8 @@ async fn main() -> Result<(), s3::Error> {
     // cache setup
     const NUM_THREADS: usize = 16;
     const NUM_KEYS_PER_THREAD: usize = 64;
-    let cache = Cache::new(100);
+    let cache: Cache<String,String> = Cache::new(100);
+
 
     let alt_state = AppState {pool, client, cache};
     let app = Router::new()

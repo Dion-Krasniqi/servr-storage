@@ -20,4 +20,5 @@ RUN cargo build --release
 RUN sed -i 's#dummy.rs#src/main.rs#' Cargo.toml
 COPY . .
 RUN cargo build --release
-#CMD ["target/release/rust-worker"]
+EXPOSE 8000
+CMD ["target/release/rust-worker"]
