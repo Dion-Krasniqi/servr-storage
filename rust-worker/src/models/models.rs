@@ -13,7 +13,7 @@ pub struct OwnerId {
     pub owner_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::Type,PartialEq)]
+#[derive(Debug, Serialize, Deserialize, sqlx::Type,PartialEq, Clone)]
 #[sqlx(type_name="FILETYPE", rename_all="lowercase")]
 #[serde(rename_all = "lowercase")] //for deserializing
 pub enum FileType { Media, Document, Other, Folder }
@@ -34,7 +34,7 @@ pub struct DatabaseFile {
     pub shared_with: Vec<Uuid>,
 }
 //same thing for now
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct FileResponse {
     //pub file: DatabaseFile
     pub file_id: Uuid,
@@ -78,7 +78,7 @@ pub struct RenameFileForm {
 pub struct AppState {
     pub pool: PgPool,
     pub client: s3::Client,
-    pub cache: Cache<String,String>,// make the 2nd string the actual val obv
+    pub cache: Cache<String, Vec<FileResponse>>,// make the 2nd string the actual val obv
     
 }
 

@@ -90,18 +90,11 @@ pub async fn get_files(State(state): State<AppState>,
     /*    let key = thingy.key().unwrap();
         let object_url = get_presigned_url(client, &payload.owner_id, key).await?;
     */
-    let cache: &Cache<String, String> = &state.cache;
-    if let Some(e) = cache.get("key_1") {
-        println!("Found {}", e);
-    } else {
-        println!("Nothin");
-        for i in 0..2 {
-                let key = format!("key_{}", i);
-                let data = format!("FileNr_{}", i);
-                cache.insert(key.clone(),data.clone());
-        }
+    let cache: &Cache<String, Vec<FileResponse>> = &state.cache;
+    if let Some(e) = cache.get(&payload.owner_id.to_string()) {
+        println!("Found");
+        return Ok(Json(e));
     }
-    
     let pool = &state.pool;
     
     let files = sqlx::query_as::<_,DatabaseFile>(r#"SELECT * FROM files where owner_id = ($1);"#)
@@ -145,6 +138,7 @@ pub async fn get_files(State(state): State<AppState>,
             url:file.url.expect("url must be set"),
         });
     }
+    cache.insert(payload.owner_id.clone(), response.clone());
     Ok(Json(response))
 }
 

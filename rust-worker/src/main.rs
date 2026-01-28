@@ -9,7 +9,7 @@ mod files;
 mod models;
 use files::methods::{get_files, create_folder, upload_file, delete_file, rename_file,
                      create_bucket};
-use crate::models::{AppState};
+use crate::models::{AppState, FileResponse};
 
 async fn hello_world() -> &'static str {
     println!("Hello");
@@ -65,7 +65,7 @@ async fn main() -> Result<(), s3::Error> {
     // cache setup
     const NUM_THREADS: usize = 16;
     const NUM_KEYS_PER_THREAD: usize = 64;
-    let cache: Cache<String,String> = Cache::new(100);
+    let cache: Cache<String, Vec<FileResponse>> = Cache::new(100);
 
 
     let alt_state = AppState {pool, client, cache};
