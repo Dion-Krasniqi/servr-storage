@@ -70,33 +70,36 @@ pub async fn create_bucket(State(state): State<AppState>,
     }
 }
 
-use moka::sync::Cache; 
+use moka::future::Cache; 
 pub async fn get_files(State(state): State<AppState>,
                        payload: extract::Json<OwnerId>) 
                        -> Result<Json<Vec<FileResponse>>, GetFilesError> {
     println!("We are fetching!");
     let client = &state.client;
-    if (check_bucket(&client, &payload.owner_id)).await? {
-        println!("Bucket does exist");    
-    } else {
-      println!("User bucket not found!");
-      return Err(GetFilesError::NotFound("User bucket not found".to_string()));
-    };
     
-    // still for fetching from db
+    let cache: &Cache<String, Vec<FileResponse>> = &state.cache;
+    let key = payload.owner_id.clone().to_string();
+    if let Some(e) = cache.get(&key).await {
+        println!("Found");
+        if e.is_empty() {
+            println!("No files");
+        } else {
+            return Ok(Json(e));
+        };
+    } else {
+        if (check_bucket(&client, &payload.owner_id)).await? {
+            println!("Bucket does exist");    
+        } else {
+            println!("User bucket not found!");
+            return Err(GetFilesError::NotFound("User bucket not found".to_string()));
+        };
+    }
+
+    // fetching from db
     let owner_id = Uuid::parse_str(&payload.owner_id) 
         .map_err(|_| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
     
-    /*    let key = thingy.key().unwrap();
-        let object_url = get_presigned_url(client, &payload.owner_id, key).await?;
-    */
-    let cache: &Cache<String, Vec<FileResponse>> = &state.cache;
-    if let Some(e) = cache.get(&payload.owner_id.to_string()) {
-        println!("Found");
-        return Ok(Json(e));
-    }
     let pool = &state.pool;
-    
     let files = sqlx::query_as::<_,DatabaseFile>(r#"SELECT * FROM files where owner_id = ($1);"#)
         .bind(&owner_id)
         .fetch_all(pool)
@@ -138,7 +141,7 @@ pub async fn get_files(State(state): State<AppState>,
             url:file.url.expect("url must be set"),
         });
     }
-    cache.insert(payload.owner_id.clone(), response.clone());
+    cache.insert(payload.owner_id.clone(), response.clone()).await;
     Ok(Json(response))
 }
 

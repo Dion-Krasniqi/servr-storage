@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use axum::{response::IntoResponse, http::StatusCode};
 use axum_extra::extract::multipart::MultipartError;
 use failure;
-use moka::sync::Cache;
+use moka::future::Cache;
 
 #[derive(Deserialize)]
 pub struct OwnerId {
