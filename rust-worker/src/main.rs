@@ -63,7 +63,7 @@ async fn main() -> Result<(), s3::Error> {
     //let state = AppState {pool, client};
     // cache setup
     const NUM_THREADS: u64 = 100;
-    let cache: Cache<String, Vec<FileResponse>> = Cache::new(NUM_THREADS);
+    let cache: Cache<String, Vec<FileResponse>> = Cache::new(10_000);
 
 
     let alt_state = AppState {pool, client, cache};

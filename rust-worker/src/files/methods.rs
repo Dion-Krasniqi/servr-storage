@@ -77,14 +77,14 @@ pub async fn get_files(State(state): State<AppState>,
     println!("We are fetching!");
     let client = &state.client;
     
-    let cache: &Cache<String, Vec<FileResponse>> = &state.cache;
+    //let cache = &state.cache;
     let key = payload.owner_id.clone().to_string();
-    if let Some(e) = cache.get(&key).await {
+    if let Some(e) = &state.cache.get(&key).await {
         println!("Found");
         if e.is_empty() {
             println!("No files");
         } else {
-            return Ok(Json(e));
+            return Ok(Json(e.clone()));
         };
     } else {
         if (check_bucket(&client, &payload.owner_id)).await? {
@@ -141,7 +141,7 @@ pub async fn get_files(State(state): State<AppState>,
             url:file.url.expect("url must be set"),
         });
     }
-    cache.insert(payload.owner_id.clone(), response.clone()).await;
+    &state.cache.insert(payload.owner_id.clone(), response.clone()).await;
     Ok(Json(response))
 }
 
@@ -327,7 +327,26 @@ pub async fn upload_file(State(state): State<AppState>,
                               return Err(GetFilesError::InternalError(e.to_string()))
                             }
             }
-  }  
+  } 
+  let cached_files: Vec<FileResponse> = match &state.cache.get(&user_id).await {
+                            Some(e) => e.clone(),
+                            _ => Vec::new(), 
+  };
+  let uploaded_file = FileResponse {
+    file_id: file_id,
+    owner_id: owner_id,
+    parent_id: parent_id,
+    file_name: name.to_string(),
+    extension: Some(extension.to_string()),
+    size: file_size,
+    file_type: file_type,
+    created_at: created_at,
+    last_modified: last_modified,
+    url: "".to_string(),
+    shared_with: shared_with,
+  };
+
+  &state.cache.insert(user_id.clone(), cached_files);
   //tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
   let s3_name = file_id.to_string() + "." + &extension;                        
   match client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
