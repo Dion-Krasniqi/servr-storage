@@ -1,6 +1,7 @@
 use axum::{routing::post,routing::get, Router, };
 use sqlx::postgres::PgPoolOptions;
 use aws_sdk_s3 as s3;
+use uuid::Uuid;
 
 use dotenv::dotenv;
 use std::env;
@@ -63,7 +64,7 @@ async fn main() -> Result<(), s3::Error> {
     //let state = AppState {pool, client};
     // cache setup
     const NUM_THREADS: u64 = 100;
-    let cache: Cache<String, Vec<FileResponse>> = Cache::new(10_000);
+    let cache: Cache<Uuid, Vec<FileResponse>> = Cache::new(100);
 
 
     let alt_state = AppState {pool, client, cache};

@@ -47,7 +47,7 @@ pub struct FileResponse {
     pub created_at: Option<DateTime<Utc>>,
     pub last_modified: Option<DateTime<Utc>>,
     pub shared_with: Vec<Uuid>,
-    pub url: String,
+    pub url: Option<String>,
 }
 
 // uploading
@@ -74,11 +74,12 @@ pub struct RenameFileForm {
     pub file_name: String,
 }
 
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
     pub client: s3::Client,
-    pub cache: Cache<String, Vec<FileResponse>>,// make the 2nd string the actual val obv
+    pub cache: Cache<Uuid, Vec<FileResponse>>,
     
 }
 
