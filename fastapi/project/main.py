@@ -36,9 +36,12 @@ async def get_db() -> AsyncSession:
 @app.get("/")
 async def root():
     return {"message":"This is root"}
+# curl -X GET "http://localhost:8001/users-me" -H "Authorization: Bearer [TOKEN]"
 @app.get("/users-me")
 async def read_self(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)]):
     return current_user
+
+# curl -X POST "http://localhost:8001/sign-in" -H "Content-Type: application/json" -d '{"email":"EMAIL","password":"PASSWORD"}'
 @app.post("/sign-in")
 async def login_user(form: SignInForm, session: AsyncSession = Depends(get_db))->Token:
     user = await authenticate_user(form.email, form.password, session)
@@ -53,10 +56,13 @@ async def login_user(form: SignInForm, session: AsyncSession = Depends(get_db))-
 
     return Token(access_token=access_token, token_type="bearer")
 
+# curl -X POST "http://localhost:8001/sign-up" -H "Content-Type: application/json" -d '{"email":"EMAIL","password":"PASSWORD"}'
 @app.post("/sign-up")
 async def create_user(form: SignUpForm, session: AsyncSession = Depends(get_db)):
     user_id = await create_new_user(form.email, form.password, session, s3)
     return {"message":"sign-up"}
+
+# curl -X POST "http://localhost:8001/upload-file" -H "Authorization: Bearer [TOKEN]" -F "file=@/path/to/your/file"
 @app.post("/upload-file")
 async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_active_user)],
                       file: UploadFile=File(...),
@@ -75,6 +81,8 @@ async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_a
                           )
 
     return {"response":True}
+
+# curl -X GET "http://localhost:8001/get-files" -H "Authorization: Bearer [TOKEN]"
 @app.get("/get-files")
 async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)]):
     owner_id = current_user.user_id
@@ -92,6 +100,7 @@ async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_ac
         return []
     return data
 
+# curl -X POST "http://localhost:8001/delete-file" -H "Content-Type: application/json" -d '{"file_id":"FILE_ID"}'
 @app.post("/delete-file")
 async def delete_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)],
                       form: DeleteForm):
@@ -101,6 +110,8 @@ async def delete_file(current_user: Annotated[DatabaseUser, Depends(get_current_
                                     "owner_id": str(owner_id),
                                     "file_id":form.file_id,},) 
     return {"response": response.is_success}
+
+# curl -X POST "http://localhost:8001/rename-file" -H "Content-Type: application/json" -d '{"file_id":"ID","file_name":"NAME"}'
 @app.post("/rename-file")
 async def rename_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)],
                       form: RenameForm):
@@ -111,6 +122,8 @@ async def rename_file(current_user: Annotated[DatabaseUser, Depends(get_current_
                                     "file_id": form.file_id,
                                     "file_name": form.file_name,
                                     },)
+        
+# curl -X POST "http://localhost:8001/create-folder" -H "Content-Type: application/json" -d '{"folder_name":"NAME","parent_id":"ID"}'
 @app.post("/create-folder")
 async def create_folder(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)], 
                         form: FolderForm):
