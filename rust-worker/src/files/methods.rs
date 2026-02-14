@@ -55,6 +55,15 @@ async fn get_presigned_url(client: &s3::Client, bucket_name: &str, object_key: &
                                   }
 }
 
+fn s3_key(file_id: String, file_ext: &Option<String>)->String{
+    if let Some(e) = file_ext {
+        return file_id + "." + e;
+    }
+
+    return file_id;
+
+}
+
 pub async fn create_bucket(State(state): State<AppState>,
                            payload: extract::Json<OwnerId>) -> Result<Json<String>, GetFilesError> {
     let client = &state.client;
@@ -76,53 +85,73 @@ pub async fn get_files(State(state): State<AppState>,
                        -> Result<Json<Vec<FileResponse>>, GetFilesError> {
     println!("We are fetching!");
     let client = &state.client;
+    let pool = &state.pool;
     let owner_id = Uuid::parse_str(&payload.owner_id) 
         .map_err(|_| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
-    if let Some(e) = state.cache.get(&owner_id).await{
-        println!("Found");
-         println!("Cache hit, {} items", e.len());
-        for f in &e {
-            println!("cached: {} ({:?})", f.file_name, f.file_type);
-        }
-        return Ok(Json(e.clone()));
-    } else {
-        if (check_bucket(&client, &payload.owner_id)).await? {
-            println!("Bucket does exist");    
-        } else {
-            println!("User bucket not found!");
-            return Err(GetFilesError::NotFound("User bucket not found".to_string()));
-        };
-    };
 
-    // fetching from db
-    
-    let pool = &state.pool;
-    let files = sqlx::query_as::<_,DatabaseFile>(r#"SELECT * FROM files where owner_id = ($1);"#)
+    let cur_date = Utc::now();
+    if let Some(e) = state.cache.get(&owner_id).await{
+        println!("Cache hit, {} items", e.len()); 
+        if (e.len() > 0){
+            let mut cached_files = e.clone();
+            for file in &mut cached_files {
+                        let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
+                        || file.last_modified.is_none() 
+                        || file.last_modified
+                            .as_ref()
+                            .map(|date| *date + chrono::Duration::days(6) < cur_date).unwrap_or(true);
+                        if (update_url) {
+                            let key = s3_key(file.file_id.to_string(), &file.extension);
+                            file.url = Some(get_presigned_url(client, &payload.owner_id, &key).await?);
+                            sqlx::query(r#"UPDATE files SET last_modified = ($1),
+                                                            url = ($2)
+                                                        WHERE file_id = ($3);"#) 
+                                        .bind(&cur_date)
+                                        .bind(&file.url)
+                                        .bind(&file.file_id)
+                                        .execute(pool)
+                                        .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;                  
+                        }
+            }
+            state.cache.remove(&owner_id).await;
+            state.cache.insert(owner_id, cached_files.clone()).await;
+            return Ok(Json(cached_files.clone()));
+        }
+        
+    }
+    if !((check_bucket(&client, &payload.owner_id)).await?) {
+        println!("User bucket not found!");
+        return Err(GetFilesError::NotFound("User bucket not found".to_string()));
+    }
+    println!("Before");
+    let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id = ($1);")
         .bind(&owner_id)
         .fetch_all(pool)
         .await
-        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    
-    let mut response: Vec<FileResponse> = Vec::with_capacity(files.len());
-    let cur_date = Utc::now();
+        .map_err(|e| {  eprintln!("{:?}", e);
+                        GetFilesError::InternalError(e.to_string())})?;
+    // fails here
+    println!("After");
+    let mut response = Vec::with_capacity(files.len());
     // maybe not mut just create a new url object
     for mut file in files {
         let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
                         || file.last_modified.is_none() 
-                        || file.last_modified.map(|date| cur_date - date > chrono::Duration::days(6)).unwrap_or(true);
+                        || file.last_modified
+                            .as_ref()
+                            .map(|date| *date + chrono::Duration::days(6) < cur_date).unwrap_or(true);
         if (update_url) {
+            let key = s3_key(file.file_id.to_string(), &file.extension);
+            file.url = Some(get_presigned_url(client, &payload.owner_id, &key).await?);
             sqlx::query(r#"UPDATE files
-                           SET last_modified = ($1)
-                           WHERE file_id = ($2);"#) 
+                           SET last_modified = ($1),
+                           url = ($2)
+                           WHERE file_id = ($3);"#) 
                 .bind(&cur_date)
+                .bind(&file.url)
                 .bind(&file.file_id)
                 .execute(pool)
-                .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-
-            let ext = file.extension.clone().unwrap_or_default();
-            let key = file.file_id.to_string() + "." + &ext;
-            //file.last_modified = Some(cur_date);
-            file.url = Some(get_presigned_url(client, &payload.owner_id, &key).await?);//possibly handle cases
+                .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?; 
         }
         response.push(FileResponse {
             file_id: file.file_id,
@@ -157,7 +186,6 @@ pub async fn create_folder(State(state): State<AppState>,
 
     let folder_name = payload.folder_name.clone();
     let created_at = Some(Utc::now());
-    let last_modified = Some(Utc::now());
     let shared_with: Vec<Uuid> = Vec::new();
     let new_folder = FileResponse {
         file_id: folder_id,
@@ -168,7 +196,7 @@ pub async fn create_folder(State(state): State<AppState>,
         size: 0,
         file_type:FileType::Folder,
         created_at: created_at,
-        last_modified: last_modified,
+        last_modified: created_at,
         shared_with: shared_with.clone(),
         url: None,
 
@@ -183,7 +211,7 @@ pub async fn create_folder(State(state): State<AppState>,
         .bind(0)
         .bind(FileType::Folder)
         .bind(&created_at)
-        .bind(&last_modified)
+        .bind(&created_at)
         .bind(shared_with)
         .execute(&state.pool).await {
             Ok(_) => {  
@@ -265,7 +293,6 @@ pub async fn upload_file(State(state): State<AppState>,
 
   let name = Path::new(&filename).file_stem().unwrap();
   let created_at = Some(Utc::now());
-  let last_modified = Some(Utc::now());
   let shared_with: Vec<Uuid> = Vec::new();
   let file_type = match content_type.as_str() {
       ctype if ctype.starts_with("image/") => FileType::Media,
@@ -306,7 +333,7 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(&extension)
       .bind(&file_type)
       .bind(&created_at)
-      .bind(&last_modified)
+      .bind(&created_at)
       .bind(&shared_with)
       .execute(&mut *tx)
       .await {
@@ -355,16 +382,17 @@ pub async fn upload_file(State(state): State<AppState>,
           .send()
           .await {
                    Ok(_) => { match tx.commit().await {
-                                Ok(_) => {  let uploaded_file= FileResponse {
+                                Ok(_) => {  
+                                            let uploaded_file= FileResponse {
                                                 file_id: file_id,
                                                 owner_id: owner_id,
                                                 parent_id: parent_id,
-                                                file_name: "Imazh".to_string(),
-                                                extension: Some("jpg".to_string()),
+                                                file_name: s3_name,
+                                                extension: Some(extension.to_string()),
                                                 size: 0,
                                                 file_type:FileType::Media,
                                                 created_at: created_at,
-                                                last_modified: last_modified,
+                                                last_modified: created_at,
                                                 shared_with: shared_with.clone(),
                                                 url: None,
                                             };

@@ -12,7 +12,7 @@ CREATE TYPE FILETYPE as ENUM ('media', 'document', 'other', 'folder');
 CREATE TABLE files (
 	file_id UUID PRIMARY KEY,
 	owner_id UUID REFERENCES users(user_id) ON DELETE CASCADE NOT NULL,
-       	parent_id UUID REFERENCES files(file_id) ON DELETE CASCADE,
+    parent_id UUID REFERENCES files(file_id) ON DELETE CASCADE,
 	file_name VARCHAR NOT NULL,
 	extension VARCHAR,
 	size BIGINT NOT NULL,
