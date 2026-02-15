@@ -133,7 +133,7 @@ pub async fn get_files(State(state): State<AppState>,
     // fails here
     println!("After");
     let mut response = Vec::with_capacity(files.len());
-    // maybe not mut just create a new url object
+
     for mut file in files {
         let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
                         || file.last_modified.is_none() 
@@ -153,6 +153,7 @@ pub async fn get_files(State(state): State<AppState>,
                 .execute(pool)
                 .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?; 
         }
+
         response.push(FileResponse {
             file_id: file.file_id,
             owner_id: file.owner_id,
@@ -164,7 +165,7 @@ pub async fn get_files(State(state): State<AppState>,
             created_at: file.created_at,
             last_modified: Some(cur_date),
             shared_with: file.shared_with,
-            url: file.url.clone(),
+            url: file.url,
         });
     }
     state.cache.insert(owner_id, response.clone()).await;
@@ -369,20 +370,18 @@ pub async fn upload_file(State(state): State<AppState>,
                             }
             }
   } 
-  let mut cached_files: Vec<FileResponse> = match state.cache.get(&owner_id).await {
-                            Some(e) => e.clone(),
-                            _ => Vec::new(), 
-  };
 
-  
-  let s3_name = file_id.to_string() + "." + &extension; 
+  let s3_name = s3_key(file_id.to_string(),&Some(extension.to_string())); 
   //tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
   match client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
           .content_type(&content_type)
           .send()
           .await {
                    Ok(_) => { match tx.commit().await {
-                                Ok(_) => {  
+                                Ok(_) => {  let mut cached_files: Vec<FileResponse> = match state.cache.get(&owner_id).await {
+                                                Some(e) => e.clone(),
+                                                _ => Vec::new(), 
+                                            };
                                             let uploaded_file= FileResponse {
                                                 file_id: file_id,
                                                 owner_id: owner_id,
@@ -429,7 +428,6 @@ pub async fn delete_file(State(state): State<AppState>,
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     
-
     use sqlx::Acquire;
     let mut conn = pool.acquire().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     let mut tx = conn.begin().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
@@ -481,7 +479,8 @@ pub async fn delete_file(State(state): State<AppState>,
     match client.delete_object().bucket(&payload.owner_id).key(key)
         .send().await {
         Ok(_) => { match tx.commit().await {
-                            Ok(_) => Ok(Json("File Deleted".to_string())),
+                            Ok(_) => {      
+                                            Ok(Json("File Deleted".to_string()))},
                             Err(e) => {
                                     eprintln!("Error {:?}", e);
                                     return Err(GetFilesError::InternalError(e.to_string()))
