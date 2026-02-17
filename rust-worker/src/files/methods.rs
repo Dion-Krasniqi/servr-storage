@@ -471,7 +471,8 @@ pub async fn delete_file(State(state): State<AppState>,
     } 
     //tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     let ext = extension.clone().unwrap_or_default();
-    let key = payload.file_id.to_string() + "." + &ext;
+    let key = s3_key(payload.file_id.to_string(), &Some(ext));//payload.file_id.to_string() + "." + &ext;
+
     /*let key = match extension {
         Some(ext) => format!("{}.{}", payload.file_id, ext),
         None => payload.file_id.clone(),
@@ -479,7 +480,14 @@ pub async fn delete_file(State(state): State<AppState>,
     match client.delete_object().bucket(&payload.owner_id).key(key)
         .send().await {
         Ok(_) => { match tx.commit().await {
-                            Ok(_) => {      
+                            Ok(_) => {         
+                                            if let Some(e) = state.cache.get(&owner_id).await {
+                                                let mut cached_files = e;
+                                                cached_files.retain(|f| f.file_id != file_id);
+                                                state.cache.remove(&owner_id).await;
+                                                state.cache.insert(owner_id, cached_files).await;
+                                            }
+                                            
                                             Ok(Json("File Deleted".to_string()))},
                             Err(e) => {
                                     eprintln!("Error {:?}", e);
