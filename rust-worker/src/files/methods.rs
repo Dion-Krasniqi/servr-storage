@@ -521,7 +521,14 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
         .bind(&owner_id)
         .execute(pool)
         .await {
-            Ok(_) => Ok(Json("File renamed".to_string())),
+            Ok(_) => {  if let Some(e) = state.cache.get(&owner_id).await {
+                            e.clone().into_iter().map(|mut f| { if f.file_id == file_id {
+                                            f.file_name = name.to_string();
+                                        }});
+                            state.cache.remove(&owner_id).await;
+                            state.cache.insert(owner_id, e).await;
+                        };
+                        Ok(Json("File renamed".to_string()))},
             Err(e) => {
                         eprintln!("Error {:?}", e);
                         return Err(GetFilesError::InternalError(e.to_string()))
