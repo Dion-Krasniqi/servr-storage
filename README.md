@@ -12,7 +12,7 @@ This part will eventually be merged with rust aswell.
 
 ## Rust
 Python sends the requests here when it comes to the non-auth stuff. Http worker with Tokio, handles most of file/object-storage related functions, all defined in the files/methods file. SQLX for database stuff, and aws-s3 methods for storage. Most functions have the same-ish logic, just some more/less stuff.  
-
+File caching handled by async moka.
 
 ## Object Storage
 Currently the object storage is provided by Cloudflare, mostly for convenience, but the plan is to host a minio cluster and handle the rest similarly.
