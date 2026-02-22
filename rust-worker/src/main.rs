@@ -18,7 +18,7 @@ async fn hello_world() -> &'static str {
 }
 
 use moka::future::Cache;
-
+use std::collections::HashMap;
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() -> Result<(), s3::Error> {
 
@@ -64,7 +64,7 @@ async fn main() -> Result<(), s3::Error> {
     //let state = AppState {pool, client};
     // cache setup
     const NUM_THREADS: u64 = 100;
-    let cache: Cache<Uuid, Vec<FileResponse>> = Cache::new(100);
+    let cache: Cache<Uuid, HashMap<Uuid, FileResponse>> = Cache::new(100);
 
 
     let alt_state = AppState {pool, client, cache};

@@ -81,16 +81,12 @@ pub async fn create_bucket(State(state): State<AppState>,
 
 use moka::future::Cache;
 use std::collections::HashMap;
-
 pub async fn get_files(State(state): State<AppState>,
                        payload: extract::Json<OwnerId>) 
-                       -> Result<Json<Vec<FileResponse>>, GetFilesError> {
+                       -> Result<Json<HashMap<Uuid, FileResponse>>, GetFilesError> {
     println!("We are fetching!");
     let client = &state.client;
     let pool = &state.pool;
-    // hashin compile test
-    //
-    let mut file_map: HashMap<Uuid, FileResponse> = HashMap::new();
 
     let owner_id = Uuid::parse_str(&payload.owner_id) 
         .map_err(|_| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
@@ -100,7 +96,7 @@ pub async fn get_files(State(state): State<AppState>,
         println!("Cache hit, {} items", e.len()); 
         if (e.len() > 0){
             let mut cached_files = e.clone();
-            for file in &mut cached_files {
+            for (file_id, file) in &mut cached_files {
                         let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
                         || file.last_modified.is_none() 
                         || file.last_modified
@@ -129,7 +125,8 @@ pub async fn get_files(State(state): State<AppState>,
         println!("User bucket not found!");
         return Err(GetFilesError::NotFound("User bucket not found".to_string()));
     }
-    println!("Before");
+
+    let mut file_map: HashMap<Uuid, FileResponse> = HashMap::new();
     let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id = ($1);")
         .bind(&owner_id)
         .fetch_all(pool)
@@ -137,7 +134,7 @@ pub async fn get_files(State(state): State<AppState>,
         .map_err(|e| {  eprintln!("{:?}", e);
                         GetFilesError::InternalError(e.to_string())})?;
 
-    let mut response = Vec::with_capacity(files.len());
+    //let mut response = Vec::with_capacity(files.len());
 
     for mut file in files {
         let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
@@ -159,7 +156,8 @@ pub async fn get_files(State(state): State<AppState>,
                 .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?; 
         }
 
-        response.push(FileResponse {
+        file_map.insert(file.file_id,
+            FileResponse {
             file_id: file.file_id,
             owner_id: file.owner_id,
             parent_id: file.parent_id,
@@ -173,8 +171,8 @@ pub async fn get_files(State(state): State<AppState>,
             url: file.url,
         });
     }
-    state.cache.insert(owner_id, response.clone()).await;
-    Ok(Json(response))
+    state.cache.insert(owner_id, file_map.clone()).await;
+    Ok(Json(file_map))
 }
 
 pub async fn create_folder(State(state): State<AppState>,
@@ -221,8 +219,8 @@ pub async fn create_folder(State(state): State<AppState>,
         .bind(shared_with)
         .execute(&state.pool).await {
             Ok(_) => {  
-                        let mut files: Vec<FileResponse> = state.cache.get(&user_id).await.unwrap_or_default();
-                        files.push(new_folder.clone());
+                        let mut files: HashMap<Uuid, FileResponse> = state.cache.get(&user_id).await.unwrap_or_default();
+                        files.insert(folder_id, new_folder.clone());
                         state.cache.insert(user_id, files).await;
                         Ok(Json("Uploaded File".to_string()))},
             Err(e) => {
@@ -383,11 +381,11 @@ pub async fn upload_file(State(state): State<AppState>,
           .send()
           .await {
                    Ok(_) => { match tx.commit().await {
-                                Ok(_) => {  let mut cached_files: Vec<FileResponse> = match state.cache.get(&owner_id).await {
+                                Ok(_) => {  let mut cached_files: HashMap<Uuid, FileResponse> = match state.cache.get(&owner_id).await {
                                                 Some(e) => e.clone(),
-                                                _ => Vec::new(), 
+                                                _ => HashMap::new(), 
                                             };
-                                            let uploaded_file= FileResponse {
+                                            let uploaded_file = FileResponse {
                                                 file_id: file_id,
                                                 owner_id: owner_id,
                                                 parent_id: parent_id,
@@ -400,7 +398,7 @@ pub async fn upload_file(State(state): State<AppState>,
                                                 shared_with: shared_with.clone(),
                                                 url: None,
                                             };
-                                            cached_files.push(uploaded_file);
+                                            cached_files.insert(file_id, uploaded_file);
                                             state.cache.insert(owner_id, cached_files).await;
                                             Ok(Json("File uploaded succesfully".to_string()))},
                                 Err(e) => {
@@ -488,7 +486,7 @@ pub async fn delete_file(State(state): State<AppState>,
                             Ok(_) => {         
                                             if let Some(e) = state.cache.get(&owner_id).await {
                                                 let mut cached_files = e;
-                                                cached_files.retain(|f| f.file_id != file_id);
+                                                cached_files.remove(&file_id);
                                                 state.cache.remove(&owner_id).await;
                                                 state.cache.insert(owner_id, cached_files).await;
                                             }
@@ -527,9 +525,8 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
         .execute(pool)
         .await {
             Ok(_) => {  if let Some(e) = state.cache.get(&owner_id).await {
-                            e.clone().into_iter().map(|mut f| { if f.file_id == file_id {
-                                            f.file_name = name.to_string();
-                                        }});
+                            //e.[&file_id].file_name = name.to_string();
+                                        
                             state.cache.remove(&owner_id).await;
                             state.cache.insert(owner_id, e).await;
                         };

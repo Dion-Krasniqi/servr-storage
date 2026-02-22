@@ -75,11 +75,12 @@ pub struct RenameFileForm {
 }
 
 
+use std::collections::HashMap;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
     pub client: s3::Client,
-    pub cache: Cache<Uuid, Vec<FileResponse>>,
+    pub cache: Cache<Uuid, HashMap<Uuid, FileResponse>>,
     
 }
 
