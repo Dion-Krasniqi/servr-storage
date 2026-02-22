@@ -79,13 +79,19 @@ pub async fn create_bucket(State(state): State<AppState>,
     }
 }
 
-use moka::future::Cache; 
+use moka::future::Cache;
+use std::collections::HashMap;
+
 pub async fn get_files(State(state): State<AppState>,
                        payload: extract::Json<OwnerId>) 
                        -> Result<Json<Vec<FileResponse>>, GetFilesError> {
     println!("We are fetching!");
     let client = &state.client;
     let pool = &state.pool;
+    // hashin compile test
+    //
+    let mut file_map: HashMap<Uuid, FileResponse> = HashMap::new();
+
     let owner_id = Uuid::parse_str(&payload.owner_id) 
         .map_err(|_| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
 
@@ -130,8 +136,7 @@ pub async fn get_files(State(state): State<AppState>,
         .await
         .map_err(|e| {  eprintln!("{:?}", e);
                         GetFilesError::InternalError(e.to_string())})?;
-    // fails here
-    println!("After");
+
     let mut response = Vec::with_capacity(files.len());
 
     for mut file in files {
