@@ -1,14 +1,19 @@
-use axum::{routing::post,routing::get, Router, };
+use axum::{routing::post,
+           routing::get, 
+           Router};
 use sqlx::postgres::PgPoolOptions;
 use aws_sdk_s3 as s3;
-use uuid::Uuid;
 
-use dotenv::dotenv;
+use uuid::Uuid;
 use std::env;
 
 mod files;
 mod models;
-use files::methods::{get_files, create_folder, upload_file, delete_file, rename_file,
+use files::methods::{get_files, 
+                     create_folder, 
+                     upload_file, 
+                     delete_file, 
+                     rename_file,
                      create_bucket};
 use crate::models::{AppState, FileResponse};
 
@@ -23,51 +28,76 @@ use std::collections::HashMap;
 async fn main() -> Result<(), s3::Error> {
 
     println!("On");
-    let DATABASE_URL = match env::var("DATABASE_URL") {
+    
+    // Database Connection Setup
+    let database_url = match env::var("DATABASE_URL") {
         Ok(url) => url,
-        Err(e) => "".to_string(),
+        Err(e) => { eprintln!("Error: {}", e);
+                    "".to_string()
+        },
     };
-    //let DATABASE_URL = "postgresql://postgres:dinqja123@localhost/servr_db";
     
     let pool = PgPoolOptions::new()
     .max_connections(5)
-    .connect(&DATABASE_URL)
+    .connect(&database_url)
     .await
     .expect("Failed to create pool");
+    
+
+    // R2 API Setup
     let account_id = match env::var("ACCOUNT_ID"){
         Ok(url) => url,
-        Err(e) => "".to_string(),
-    };
-    let access_key_id = match env::var("ACCESS_KEY_ID"){
-        Ok(url) => url,
-        Err(e) => "".to_string(),
-    };
-    let secret_access_key = match env::var("SECRET_ACCESS_KEY"){
-        Ok(url) => url,
-        Err(e) => "".to_string(),
+        Err(e) => { eprintln!("Error: {}", e);
+                    "".to_string()
+        },
     };
 
-    let config = aws_config::from_env()
-        .endpoint_url(format!("https://{}.r2.cloudflarestorage.com" , account_id))
-        .credentials_provider(aws_sdk_s3::config::Credentials::new(
-                access_key_id,
-                secret_access_key,
-                None,
-                None,
-                "R2",
-        )).region("auto")
+    let access_key_id = match env::var("ACCESS_KEY_ID"){
+        Ok(url) => url,
+        Err(e) => { eprintln!("Error: {}", e);
+                    "".to_string()
+        },
+    };
+
+    let secret_access_key = match env::var("SECRET_ACCESS_KEY"){
+        Ok(url) => url, 
+        Err(e) => { eprintln!("Error: {}", e);
+                    "".to_string()
+        },
+    };
+    
+    let r2_url = format!("https://{}.r2.cloudflarestorage.com",
+        account_id);
+
+    let r2_credentials = aws_sdk_s3::config::Credentials::new(
+        access_key_id,
+        secret_access_key,
+        None,
+        None,
+        "R2",
+    );
+
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest()) 
+        //was from_env() 
+        .endpoint_url(r2_url)
+        .credentials_provider(r2_credentials)
+        .region("auto")
         .load()
         .await;
 
     let client = s3::Client::new(&config);
     
-    //let state = AppState {pool, client};
-    // cache setup
+
+    // Cache Setup
     const NUM_THREADS: u64 = 100;
-    let cache: Cache<Uuid, HashMap<Uuid, FileResponse>> = Cache::new(100);
+    
+    let cache: Cache<Uuid, HashMap<Uuid, FileResponse>> = 
+        Cache::new(NUM_THREADS);
 
+    let state = AppState {pool, client, cache};
+    
 
-    let alt_state = AppState {pool, client, cache};
+    //Axum HTTP Server Setup
     let app = Router::new()
         .route("/get-files", post(get_files))
         .route("/upload-file", post(upload_file))
@@ -76,14 +106,15 @@ async fn main() -> Result<(), s3::Error> {
         .route("/rename-file", post(rename_file))
         .route("/create-folder", post(create_folder))
         .route("/", get(hello_world))
-        .with_state(alt_state);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+        .await
+        .unwrap();
     
-    
-    if let Err(e) = axum::serve(listener, app)
-        .await{
+    if let Err(e) = axum::serve(listener, app).await{
             eprintln!("Error : {:?}", e);
-        }
+    }
     
     Ok(())
 }
