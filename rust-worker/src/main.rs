@@ -7,15 +7,15 @@ use aws_sdk_s3 as s3;
 use uuid::Uuid;
 use std::env;
 
-mod files;
-mod models;
-use files::methods::{get_files, 
+mod methods;
+pub mod models;
+use methods::{get_files, 
                      create_folder, 
                      upload_file, 
                      delete_file, 
                      rename_file,
                      create_bucket};
-use crate::models::{AppState, FileResponse};
+use models::{AppState, FileResponse};
 
 async fn hello_world() -> &'static str {
     println!("Hello");
