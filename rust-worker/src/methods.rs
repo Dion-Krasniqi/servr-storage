@@ -1,18 +1,15 @@
-use axum::{extract,extract::State, Json};
+use axum::{extract, extract::State, Json};
 use axum_extra::extract::Multipart;
+use aws_sdk_s3 as s3;
+use aws_sdk_s3::error::ProvideErrorMetadata;
+use aws_sdk_s3::presigning::PresigningConfig;
 
-use sqlx::PgPool;
 use uuid::Uuid;
 use chrono::Utc;
 use bytes::Bytes;
 use std::time::Duration;
 use std::path::Path;
-
-
-use aws_sdk_s3 as s3;
-use aws_sdk_s3::error::ProvideErrorMetadata;
-use aws_sdk_s3::presigning::PresigningConfig;
-
+use std::collections::HashMap;
 use failure;
 
 use crate::models::{DatabaseFile,
@@ -24,6 +21,7 @@ use crate::models::{DatabaseFile,
                     RenameFileForm,
                     AppState,
                     GetFilesError};
+
 
 async fn check_bucket(client: &s3::Client, bucket_name: &str)->Result<bool, s3::Error>{
     match client.head_bucket().bucket(bucket_name).send().await {
@@ -59,9 +57,7 @@ fn s3_key(file_id: String, file_ext: &Option<String>)->String{
     if let Some(e) = file_ext {
         return file_id + "." + e;
     }
-
     return file_id;
-
 }
 
 pub async fn create_bucket(State(state): State<AppState>,
@@ -79,8 +75,6 @@ pub async fn create_bucket(State(state): State<AppState>,
     }
 }
 
-use moka::future::Cache;
-use std::collections::HashMap;
 pub async fn get_files(State(state): State<AppState>,
                        payload: extract::Json<OwnerId>) 
                        -> Result<Json<HashMap<Uuid, FileResponse>>, GetFilesError> {
@@ -92,9 +86,10 @@ pub async fn get_files(State(state): State<AppState>,
         .map_err(|_| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
 
     let cur_date = Utc::now();
+    
     if let Some(e) = state.cache.get(&owner_id).await{
         println!("Cache hit, {} items", e.len()); 
-        if (e.len() > 0){
+        if e.len() > 0 {
             let mut cached_files = e.clone();
             for (file_id, file) in &mut cached_files {
                         let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
@@ -102,31 +97,34 @@ pub async fn get_files(State(state): State<AppState>,
                         || file.last_modified
                             .as_ref()
                             .map(|date| *date + chrono::Duration::days(6) < cur_date).unwrap_or(true);
-                        if (update_url) {
-                            let key = s3_key(file.file_id.to_string(), &file.extension);
+                        if update_url {
+                            let key = s3_key(file_id.to_string(), &file.extension);
                             file.url = Some(get_presigned_url(client, &payload.owner_id, &key).await?);
                             sqlx::query(r#"UPDATE files SET last_modified = ($1),
                                                             url = ($2)
                                                         WHERE file_id = ($3);"#) 
                                         .bind(&cur_date)
                                         .bind(&file.url)
-                                        .bind(&file.file_id)
+                                        .bind(&file_id)
                                         .execute(pool)
                                         .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;                  
                         }
             }
+
             state.cache.remove(&owner_id).await;
             state.cache.insert(owner_id, cached_files.clone()).await;
             return Ok(Json(cached_files.clone()));
         }
         
     }
+
     if !((check_bucket(&client, &payload.owner_id)).await?) {
         println!("User bucket not found!");
         return Err(GetFilesError::NotFound("User bucket not found".to_string()));
     }
 
     let mut file_map: HashMap<Uuid, FileResponse> = HashMap::new();
+    
     let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id = ($1);")
         .bind(&owner_id)
         .fetch_all(pool)
@@ -134,15 +132,13 @@ pub async fn get_files(State(state): State<AppState>,
         .map_err(|e| {  eprintln!("{:?}", e);
                         GetFilesError::InternalError(e.to_string())})?;
 
-    //let mut response = Vec::with_capacity(files.len());
-
     for mut file in files {
         let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
                         || file.last_modified.is_none() 
                         || file.last_modified
                             .as_ref()
                             .map(|date| *date + chrono::Duration::days(6) < cur_date).unwrap_or(true);
-        if (update_url) {
+        if update_url {
             let key = s3_key(file.file_id.to_string(), &file.extension);
             file.url = Some(get_presigned_url(client, &payload.owner_id, &key).await?);
             sqlx::query(r#"UPDATE files
@@ -158,7 +154,6 @@ pub async fn get_files(State(state): State<AppState>,
 
         file_map.insert(file.file_id,
             FileResponse {
-            file_id: file.file_id,
             owner_id: file.owner_id,
             parent_id: file.parent_id,
             file_name: file.file_name,
@@ -171,17 +166,21 @@ pub async fn get_files(State(state): State<AppState>,
             url: file.url,
         });
     }
+
     state.cache.insert(owner_id, file_map.clone()).await;
     Ok(Json(file_map))
 }
 
+
 pub async fn create_folder(State(state): State<AppState>,
                            payload: extract::Json<CreateFolderForm>)->Result<Json<String>, GetFilesError> {
     println!("CreateFolder ran");
+    
     let user_id = Uuid::parse_str(&payload.owner_id)
-        .map_err(|e| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
+        .map_err(|e| GetFilesError::InternalError(format!("Failed to parse user id. Error: {}", e)))?;
 
     let folder_id = Uuid::new_v4();
+    
     let parent_id = match payload.parent_id.is_empty() {
        true => None,
        false => Some(Uuid::parse_str(&payload.parent_id) 
@@ -191,8 +190,8 @@ pub async fn create_folder(State(state): State<AppState>,
     let folder_name = payload.folder_name.clone();
     let created_at = Some(Utc::now());
     let shared_with: Vec<Uuid> = Vec::new();
+    
     let new_folder = FileResponse {
-        file_id: folder_id,
         owner_id: user_id,
         parent_id: parent_id,
         file_name: folder_name.clone(),
@@ -234,10 +233,11 @@ pub async fn upload_file(State(state): State<AppState>,
                          mut payload: Multipart)->Result<Json<String>, GetFilesError> {
 
   println!("UploadFile Ran");
+  
+  let mut user_id = String::new();
   let mut data = Bytes::new();
   let mut filename = String::new(); 
   let mut content_type = String::new();
-  let mut user_id = String::new();
   let mut payload_parent_id = String::new();
 
   while let Some(field) = payload.next_field().await? {
@@ -257,9 +257,11 @@ pub async fn upload_file(State(state): State<AppState>,
       _ => {}
       }
   };
+
   let client = &state.client;
-  if (check_bucket(&client, &user_id)).await? {
-    println!("Bucket does exist!");
+  
+  if check_bucket(&client, &user_id).await? {
+      println!("Bucket does exit");
   } else {
     println!("User bucket not found");
     return Err(GetFilesError::NotFound("User bucket not found".to_string()));
@@ -280,8 +282,6 @@ pub async fn upload_file(State(state): State<AppState>,
 
   if (file_size + storage_used) > 1048576 * 2 {
         return Err(GetFilesError::InternalError("Not enough storage".to_string())); 
-  } else {
-        //proceed
   }
 
   let file_id = Uuid::new_v4();
@@ -289,6 +289,7 @@ pub async fn upload_file(State(state): State<AppState>,
       .extension()
       .and_then(|s| s.to_str())
       .unwrap_or("");
+  
   let parent_id = match payload_parent_id.is_empty() {
         true => None,
         false => Some(Uuid::parse_str(&payload_parent_id)
@@ -319,12 +320,12 @@ pub async fn upload_file(State(state): State<AppState>,
               .bind(&owner_id)
               .execute(&mut *tx)
               .await {
-                   Ok(_) => println!("Parent Update"),
+                   Ok(_) => println!("User Table Update"),
                    Err(e) => {
                               eprintln!("Error {:?}", e);
                               return Err(GetFilesError::InternalError(e.to_string()))
-                            }
-            } //rollback?
+                   }
+              }
  // file table update
  match sqlx::query(r#"INSERT INTO files (file_id, owner_id, parent_id, file_name,
               size, extension, file_type, created_at, last_modified, shared_with)
@@ -341,12 +342,12 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(&shared_with)
       .execute(&mut *tx)
       .await {
-                   Ok(_) => println!("Parent Update"),
+                   Ok(_) => println!("File Table Update"),
                    Err(e) => {
                               eprintln!("Error {:?}", e);
                               return Err(GetFilesError::InternalError(e.to_string()))
-                            }
-            }
+                   }
+      }
   // basically match parent_id { Some(val) => {let parent_id = val ...}, None =>{}}
   if let Some(parent_id) = parent_id {
         match sqlx::query(r#"WITH RECURSIVE ancestors AS (
@@ -375,18 +376,17 @@ pub async fn upload_file(State(state): State<AppState>,
   } 
 
   let s3_name = s3_key(file_id.to_string(),&Some(extension.to_string())); 
-  //tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+  
   match client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
           .content_type(&content_type)
           .send()
-          .await {
-                   Ok(_) => { match tx.commit().await {
+          .await { // S3 dependent switch
+                   Ok(_) => { match tx.commit().await { // Database dependent switch
                                 Ok(_) => {  let mut cached_files: HashMap<Uuid, FileResponse> = match state.cache.get(&owner_id).await {
                                                 Some(e) => e.clone(),
                                                 _ => HashMap::new(), 
                                             };
                                             let uploaded_file = FileResponse {
-                                                file_id: file_id,
                                                 owner_id: owner_id,
                                                 parent_id: parent_id,
                                                 file_name: s3_name,
@@ -413,6 +413,7 @@ pub async fn upload_file(State(state): State<AppState>,
                             },
             }
 }
+
 
 pub async fn delete_file(State(state): State<AppState>,
                          payload: extract::Json<DeleteFileForm>)->Result<Json<String>, GetFilesError> {

@@ -18,7 +18,6 @@ pub struct OwnerId {
 #[serde(rename_all = "lowercase")] //for deserializing
 pub enum FileType { Media, Document, Other, Folder }
 
-//add deserialize aswell
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct DatabaseFile {
     pub file_id: Uuid,
@@ -33,11 +32,11 @@ pub struct DatabaseFile {
     pub url: Option<String>,
     pub shared_with: Vec<Uuid>,
 }
-//same thing for now
+
 #[derive(Debug, Serialize, Clone)]
 pub struct FileResponse {
     //pub file: DatabaseFile
-    pub file_id: Uuid,
+    //pub file_id: Uuid,
     pub owner_id: Uuid,
     pub parent_id: Option<Uuid>,
     pub file_name: String,
