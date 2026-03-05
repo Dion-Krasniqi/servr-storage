@@ -11,6 +11,19 @@ services:
       - ./init-db:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
+  minio:
+    image: minio/minio:latest
+    container_name: minio-container
+    environment: 
+      MINIO_ROOT_USER: ${ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${SECRET_ACCESS_KEY}
+    volumes:
+      - ./minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
 
   rust:
     build:
@@ -21,8 +34,10 @@ services:
       ACCOUNT_ID: ${ACCOUNT_ID}
       ACCESS_KEY_ID: ${ACCESS_KEY_ID}
       SECRET_ACCESS_KEY: ${SECRET_ACCESS_KEY}
+      MINIO_ENDPOINT: http://minio-container:9000
     depends_on:
       - postgres
+      - minio
 
   fastapi:
     build:
