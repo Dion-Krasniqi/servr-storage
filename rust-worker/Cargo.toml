@@ -1,10 +1,13 @@
 [package]
-name = "rust-worker"
+name = "rust_worker"
 version = "0.1.0"
 edition = "2024"
 [[bin]]
-name = "rust-worker"
+name = "rust_worker"
 path = "src/main.rs"
+[lib]
+name = "rust_worker"
+path = "src/lib.rs"
 
 [dependencies]
 axum = "0.8.7"
@@ -24,3 +27,4 @@ failure = "0.1.8"
 moka = { version = "0.12.12", features = ["future"] }
 
 reqwest = { version = "0.12", features = ["json", "multipart"] }
+serde_json = "1"

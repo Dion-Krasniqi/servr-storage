@@ -7,16 +7,16 @@ use aws_sdk_s3 as s3;
 use uuid::Uuid;
 use std::env;
 
-/*mod methods;
-pub mod models;
-use methods::{get_files, 
+//Pub mod methods;
+//pub mod models;
+use crate::methods::{get_files, 
                      create_folder, 
                      upload_file, 
                      delete_file, 
                      rename_file,
                      create_bucket};
-use models::{AppState, FileResponse};
-use rust_worker::setup;
+use crate::models::{AppState, FileResponse};
+
 async fn hello_world() -> &'static str {
     println!("Hello");
     "Hello"
@@ -109,23 +109,4 @@ pub async fn setup() -> Result<Router, s3::Error> {
  
     //Ok(())
     Ok(app)
-}
-
-*/
-
-use rust_worker::setup::setup;
-#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
-async fn main() -> Result<(), s3::Error>{
-    let app = if let Ok(a) = setup().await {
-        a
-    } else {
-        return Ok(())
-    };
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
-        .await
-        .unwrap();
-    if let Err(e) = axum::serve(listener, app).await {
-        eprintln!("Error: {:?}", e);
-    }
-    Ok(())
 }
