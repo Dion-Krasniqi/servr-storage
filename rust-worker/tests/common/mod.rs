@@ -16,6 +16,7 @@ pub async fn spawn_app() -> TestApp {
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
+
     TestApp {
         base_url: format!("http://127.0.0.1:{}", port),
         client: reqwest::Client::new(),

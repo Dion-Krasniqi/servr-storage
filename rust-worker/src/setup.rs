@@ -1,20 +1,22 @@
 use axum::{routing::post,
            routing::get, 
            Router};
+
 use sqlx::postgres::PgPoolOptions;
 use aws_sdk_s3 as s3;
+use moka::future::Cache;
 
 use uuid::Uuid;
 use std::env;
+use std::collections::HashMap;
 
-//Pub mod methods;
-//pub mod models;
 use crate::methods::{get_files, 
                      create_folder, 
                      upload_file, 
                      delete_file, 
                      rename_file,
                      create_bucket};
+
 use crate::models::{AppState, FileResponse};
 
 async fn hello_world() -> &'static str {
@@ -22,8 +24,6 @@ async fn hello_world() -> &'static str {
     "Hello"
 }
 
-use moka::future::Cache;
-use std::collections::HashMap;
 pub async fn setup() -> Result<Router, s3::Error> {
 
     println!("On");
