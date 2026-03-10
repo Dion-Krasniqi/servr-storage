@@ -20,7 +20,7 @@ use crate::models::{DatabaseFile,
                     DeleteFileForm,
                     RenameFileForm,
                     AppState,
-                    GetFilesError};
+                    ServerError};
 
 
 async fn check_bucket(client: &s3::Client, bucket_name: &str)->Result<bool, s3::Error>{
@@ -61,7 +61,8 @@ fn s3_key(file_id: String, file_ext: &Option<String>)->String{
 }
 
 pub async fn create_bucket(State(state): State<AppState>,
-                           payload: extract::Json<OwnerId>) -> Result<Json<String>, GetFilesError> {
+                           payload: extract::Json<OwnerId>
+) -> Result<Json<String>, ServerError> {
     let client = &state.client;
     match client.create_bucket().bucket(&payload.owner_id).send()
         .await
@@ -69,21 +70,22 @@ pub async fn create_bucket(State(state): State<AppState>,
             Ok(_) => Ok(Json("success".to_string())),
             Err(e) => {
                         eprintln!("Error {:?}", e);    
-                        return Err(GetFilesError::S3Error(e.into()))
+                        return Err(ServerError::S3Error(e.into()))
             }
 
     }
 }
 
 pub async fn get_files(State(state): State<AppState>,
-                       payload: extract::Json<OwnerId>) 
-                       -> Result<Json<HashMap<Uuid, FileResponse>>, GetFilesError> {
+                       payload: extract::Json<OwnerId>
+)-> Result<Json<HashMap<Uuid, FileResponse>>, ServerError> {
+    
     println!("We are fetching!");
     let client = &state.client;
     let pool = &state.pool;
 
     let owner_id = Uuid::parse_str(&payload.owner_id) 
-        .map_err(|_| GetFilesError::InternalError("Failed to parse user id".to_string()))?;
+        .map_err(|_| ServerError::InternalError("Failed to parse user id".to_string()))?;
 
     let cur_date = Utc::now();
     
@@ -107,7 +109,7 @@ pub async fn get_files(State(state): State<AppState>,
                                         .bind(&file.url)
                                         .bind(&file_id)
                                         .execute(pool)
-                                        .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;                  
+                                        .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;                  
                         }
             }
 
@@ -120,7 +122,7 @@ pub async fn get_files(State(state): State<AppState>,
 
     if !((check_bucket(&client, &payload.owner_id)).await?) {
         println!("User bucket not found!");
-        return Err(GetFilesError::NotFound("User bucket not found".to_string()));
+        return Err(ServerError::NotFound("User bucket not found".to_string()));
     }
 
     let mut file_map: HashMap<Uuid, FileResponse> = HashMap::new();
@@ -130,7 +132,7 @@ pub async fn get_files(State(state): State<AppState>,
         .fetch_all(pool)
         .await
         .map_err(|e| {  eprintln!("{:?}", e);
-                        GetFilesError::InternalError(e.to_string())})?;
+                        ServerError::DatabaseError(e.to_string())})?;
 
     for mut file in files {
         let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
@@ -149,7 +151,7 @@ pub async fn get_files(State(state): State<AppState>,
                 .bind(&file.url)
                 .bind(&file.file_id)
                 .execute(pool)
-                .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?; 
+                .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?; 
         }
 
         file_map.insert(file.file_id,
@@ -173,18 +175,20 @@ pub async fn get_files(State(state): State<AppState>,
 
 
 pub async fn create_folder(State(state): State<AppState>,
-                           payload: extract::Json<CreateFolderForm>)->Result<Json<String>, GetFilesError> {
+                           payload: extract::Json<CreateFolderForm>
+)->Result<Json<String>, ServerError> {
+
     println!("CreateFolder ran");
     
     let user_id = Uuid::parse_str(&payload.owner_id)
-        .map_err(|e| GetFilesError::InternalError(format!("Failed to parse user id. Error: {}", e)))?;
+        .map_err(|e| ServerError::InternalError(format!("Failed to parse user id. Error: {}", e)))?;
 
     let folder_id = Uuid::new_v4();
     
     let parent_id = match payload.parent_id.is_empty() {
        true => None,
        false => Some(Uuid::parse_str(&payload.parent_id) 
-                   .map_err(|_| GetFilesError::InternalError("Failed to parse parent id".to_string()))?),
+                   .map_err(|e| ServerError::InternalError(format!("Failed to parse parent id. Error: {}", e)))?),
     };
 
     let folder_name = payload.folder_name.clone();
@@ -224,13 +228,14 @@ pub async fn create_folder(State(state): State<AppState>,
                         Ok(Json("Uploaded File".to_string()))},
             Err(e) => {
                         eprintln!("Error {:?}", e);
-                        return Err(GetFilesError::InternalError(e.to_string()))},
+                        return Err(ServerError::DatabaseError(e.to_string()))},
         }
 }
 
 //2mb limit 
 pub async fn upload_file(State(state): State<AppState>,
-                         mut payload: Multipart)->Result<Json<String>, GetFilesError> {
+                         mut payload: Multipart
+)->Result<Json<String>, ServerError> {
 
   println!("UploadFile Ran");
   
@@ -264,12 +269,12 @@ pub async fn upload_file(State(state): State<AppState>,
       println!("Bucket does exit");
   } else {
     println!("User bucket not found");
-    return Err(GetFilesError::NotFound("User bucket not found".to_string()));
+    return Err(ServerError::NotFound("User bucket not found".to_string()));
   };
 
   let file_size = data.len() as i64; 
   let owner_id = Uuid::parse_str(&user_id)
-      .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+      .map_err(|e| ServerError::InternalError(e.to_string()))?;
 
   let pool = &state.pool;
   let storage_used: i64 = sqlx::query_scalar(r#"SELECT storage_used
@@ -278,10 +283,10 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(&owner_id)
       .fetch_one(pool)
       .await
-      .map_err(|e| GetFilesError::InternalError("Failed to get storage".to_string()))?;
+      .map_err(|e| ServerError::DatabaseError(format!("Failed to get storage. Error: {}", e)))?;
 
   if (file_size + storage_used) > 1048576 * 2 {
-        return Err(GetFilesError::InternalError("Not enough storage".to_string())); 
+        return Err(ServerError::InternalError("Not enough storage".to_string())); 
   }
 
   let file_id = Uuid::new_v4();
@@ -293,7 +298,7 @@ pub async fn upload_file(State(state): State<AppState>,
   let parent_id = match payload_parent_id.is_empty() {
         true => None,
         false => Some(Uuid::parse_str(&payload_parent_id)
-            .map_err(|e| GetFilesError::InternalError(e.to_string()))?),
+            .map_err(|e| ServerError::InternalError(e.to_string()))?),
   };
 
   let name = Path::new(&filename).file_stem().unwrap();
@@ -310,8 +315,8 @@ pub async fn upload_file(State(state): State<AppState>,
   };
  //maybe make this a function
  use sqlx::Acquire;
- let mut conn = pool.acquire().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
- let mut tx = conn.begin().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+ let mut conn = pool.acquire().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
+ let mut tx = conn.begin().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
  // user table update
  match sqlx::query(r#"UPDATE users
               SET storage_used = storage_used + ($1)
@@ -323,7 +328,7 @@ pub async fn upload_file(State(state): State<AppState>,
                    Ok(_) => println!("User Table Update"),
                    Err(e) => {
                               eprintln!("Error {:?}", e);
-                              return Err(GetFilesError::InternalError(e.to_string()))
+                              return Err(ServerError::DatabaseError(e.to_string()))
                    }
               }
  // file table update
@@ -345,7 +350,7 @@ pub async fn upload_file(State(state): State<AppState>,
                    Ok(_) => println!("File Table Update"),
                    Err(e) => {
                               eprintln!("Error {:?}", e);
-                              return Err(GetFilesError::InternalError(e.to_string()))
+                              return Err(ServerError::DatabaseError(e.to_string()))
                    }
       }
   // basically match parent_id { Some(val) => {let parent_id = val ...}, None =>{}}
@@ -370,7 +375,7 @@ pub async fn upload_file(State(state): State<AppState>,
                    Ok(_) => println!("Parent Update"),
                    Err(e) => {
                               eprintln!("Error {:?}", e);
-                              return Err(GetFilesError::InternalError(e.to_string()))
+                              return Err(ServerError::DatabaseError(e.to_string()))
                             }
             }
   } 
@@ -403,38 +408,40 @@ pub async fn upload_file(State(state): State<AppState>,
                                             Ok(Json("File uploaded succesfully".to_string()))},
                                 Err(e) => {
                                         eprintln!("Error {:?}", e);
-                                        return Err(GetFilesError::InternalError(e.to_string()))
+                                        return Err(ServerError::DatabaseError(e.to_string()))
                                         }
                                 }
                             },
                    Err(e) => {
                               eprintln!("Error {:?}", e);
-                              return Err(GetFilesError::InternalError(e.to_string()))
+                              return Err(ServerError::S3Error(e.into()))
                             },
             }
 }
 
 
 pub async fn delete_file(State(state): State<AppState>,
-                         payload: extract::Json<DeleteFileForm>)->Result<Json<String>, GetFilesError> {
+                         payload: extract::Json<DeleteFileForm>
+)->Result<Json<String>, ServerError> {
+
     println!("DeleteFile Ran");
     let file_id = Uuid::parse_str(&payload.file_id) 
-        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+        .map_err(|e| ServerError::InternalError(e.to_string()))?;
     
     let client = &state.client;
     if (check_bucket(&client, &payload.owner_id)).await? {
         //
     } else {
         println!("User bucket not found!");
-        return Err(GetFilesError::NotFound("User bucket not found".to_string()));
+        return Err(ServerError::NotFound("User bucket not found".to_string()));
     };
     let pool = &state.pool;
     let owner_id = Uuid::parse_str(&payload.owner_id)
-        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+        .map_err(|e| ServerError::InternalError(e.to_string()))?;
     
     use sqlx::Acquire;
-    let mut conn = pool.acquire().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    let mut tx = conn.begin().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+    let mut conn = pool.acquire().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
+    let mut tx = conn.begin().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
 
     let (extension, size, parent_id): (Option<String>, i64, Option<Uuid>) = sqlx::query_as(r#"DELETE FROM files
                                      WHERE file_id = ($1) AND owner_id = ($2)
@@ -443,7 +450,7 @@ pub async fn delete_file(State(state): State<AppState>,
         .bind(&owner_id)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| GetFilesError::InternalError("Database delete failed".to_string()))?;
+        .map_err(|e| ServerError::DatabaseError(format!("Database delete failed. Error: {}", e)))?;
 
     sqlx::query(r#"UPDATE users
                  SET storage_used = storage_used - ($1)
@@ -452,7 +459,7 @@ pub async fn delete_file(State(state): State<AppState>,
         .bind(&owner_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;  
+        .map_err(|e| ServerError::DatabaseError(e.to_string()))?;  
 
     if let Some(parent_id) = parent_id {
         sqlx::query(r#"WITH RECURSIVE ancestors AS (
@@ -471,7 +478,7 @@ pub async fn delete_file(State(state): State<AppState>,
             .bind(parent_id)
             .bind(size)
             .execute(&mut *tx)
-            .await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+            .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
     } 
     //tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
     let ext = extension.clone().unwrap_or_default();
@@ -495,25 +502,26 @@ pub async fn delete_file(State(state): State<AppState>,
                                             Ok(Json("File Deleted".to_string()))},
                             Err(e) => {
                                     eprintln!("Error {:?}", e);
-                                    return Err(GetFilesError::InternalError(e.to_string()))
+                                    return Err(ServerError::DatabaseError(e.to_string()))
                             }}},
         Err(e) => {
                     eprintln!("Error {:?}", e);
-                    return Err(GetFilesError::InternalError(e.to_string()))
+                    return Err(ServerError::S3Error(e.into()))
                   }
             }
 }
 
-pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<RenameFileForm>)
-                                       ->Result<Json<String>, GetFilesError> {
+pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<RenameFileForm>
+)->Result<Json<String>, ServerError> {
+
     println!("Rename ran");
     let file_id = Uuid::parse_str(&payload.file_id)
-        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+        .map_err(|e| ServerError::InternalError(e.to_string()))?;
     let owner_id = Uuid::parse_str(&payload.owner_id)
-        .map_err(|e| GetFilesError::InternalError(e.to_string()))?;
+        .map_err(|e| ServerError::InternalError(e.to_string()))?;
     if payload.file_name.trim().is_empty() {
         println!("Name empty");
-        return Err(GetFilesError::InternalError("Invalid name".to_string()));
+        return Err(ServerError::InternalError("Invalid name".to_string()));
     };
     let name = payload.file_name.trim();
     let pool = &state.pool;
@@ -535,7 +543,7 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
                         Ok(Json("File renamed".to_string()))},
             Err(e) => {
                         eprintln!("Error {:?}", e);
-                        return Err(GetFilesError::InternalError(e.to_string()))
+                        return Err(ServerError::DatabaseError(e.to_string()))
                       },
         }
 }

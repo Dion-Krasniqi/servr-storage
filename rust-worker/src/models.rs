@@ -57,7 +57,6 @@ pub struct CreateFolderForm {
     pub parent_id: String,
 }
 
-//sharing
 
 //deleting
 #[derive(Debug,Deserialize)]
@@ -86,45 +85,50 @@ pub struct AppState {
 
 // error return types
 #[derive(Debug)]
-pub enum GetFilesError {
+pub enum ServerError {
     S3Error(s3::Error),
     // maybe ref
     InternalError(String),
-    NotFound(String),    
-
+    NotFound(String),   
+    DatabaseError(String),
     
 }
 
-impl From<s3::Error> for GetFilesError {
+impl From<s3::Error> for ServerError {
     fn from(e: s3::Error) -> Self {
-        GetFilesError::S3Error(e)
+        ServerError::S3Error(e)
     }
 }
-impl From<failure::Error> for GetFilesError {
+impl From<failure::Error> for ServerError {
     fn from(e: failure::Error) -> Self {
-        GetFilesError::InternalError(e.to_string())
+        ServerError::InternalError(e.to_string())
     }
 
 }
-impl From<MultipartError> for GetFilesError {
+impl From<MultipartError> for ServerError {
     fn from(e: MultipartError) -> Self {
-        GetFilesError::InternalError(e.to_string())
+        ServerError::InternalError(e.to_string())
     }
 }
 //for axum
-impl IntoResponse for GetFilesError {
+impl IntoResponse for ServerError {
     fn into_response(self) -> axum::response::Response {
         match self {
-            GetFilesError::S3Error(_) => (
+            ServerError::DatabaseError(msg) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    msg,
+                    ).into_response(),
+            ServerError::S3Error(_) => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "S3 error".to_string(),
                 ).into_response(),
+                
                 //split this bcuz currently too broad
-            GetFilesError::InternalError(msg) => (
+            ServerError::InternalError(msg) => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     msg,
                 ).into_response(),
-            GetFilesError::NotFound(msg) => (
+            ServerError::NotFound(msg) => (
                     StatusCode::NOT_FOUND,
                     msg,
                 ).into_response(),
