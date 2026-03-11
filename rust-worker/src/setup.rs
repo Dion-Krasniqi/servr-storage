@@ -42,7 +42,7 @@ pub async fn setup() -> Result<Router, s3::Error> {
     .await
     .expect("Failed to create pool");
     
-
+    /*
     // R2 API Setup
     let account_id = match env::var("ACCOUNT_ID"){
         Ok(url) => url,
@@ -74,17 +74,30 @@ pub async fn setup() -> Result<Router, s3::Error> {
         None,
         None,
         "R2",
-    );
+    ); */
 
+    let minio_url = match env::var("MINIO_ENDPOINT") {
+        Ok(url) => url,
+        Err(e) => {
+                   eprintln!("Error {:?}", e);
+                   "".to_string()
+        },
+    };
     let config = aws_config::defaults(aws_config::BehaviorVersion::latest()) 
-        //was from_env() 
-        .endpoint_url(r2_url)
-        .credentials_provider(r2_credentials)
-        .region("auto")
+        //was from_env(), but default naming in the env file
+        .endpoint_url(minio_url)
+        //.credentials_provider(r2_credentials)
+        .region(aws_config::meta
+            ::region::RegionProviderChain::default_provider()
+            .or_else("eu-west-2"))
         .load()
         .await;
 
-    let client = s3::Client::new(&config);
+    let s3_config = s3::config::Builder::from(&config)
+        .force_path_style(true)
+        .build();
+
+    let client = s3::Client::from_conf(s3_config);
     
 
     // Cache Setup
