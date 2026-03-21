@@ -77,7 +77,10 @@ pub async fn setup() -> Result<Router, s3::Error> {
     ); */
 
     let minio_url = match env::var("MINIO_ENDPOINT") {
-        Ok(url) => url,
+        Ok(url) => { 
+            println!("Minio: {}",url);
+            url
+        },
         Err(e) => {
                    eprintln!("Error {:?}", e);
                    "".to_string()

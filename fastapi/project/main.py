@@ -16,15 +16,18 @@ import os
 
 app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="sign-in")
-ACCOUNT_ID = os.getenv("ACCOUNT_ID");
-ACCESS_KEY_ID = os.getenv("ACCESS_KEY_ID");
-SECRET_ACCESS_KEY = os.getenv("SECRET_ACCESS_KEY");
+#ACCOUNT_ID = os.getenv("ACCOUNT_ID");
+ENDPOINT = os.getnev("MINIO_ENDPOINT")
+ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 s3 = boto3.resource('s3',
-                    endpoint_url = f"https://{ACCOUNT_ID}.r2.cloudflarestorage.com" ,
+                    endpoint_url = ENDPOINT,
                     aws_access_key_id = ACCESS_KEY_ID,
-                    aws_secret_access_key = SECRET_ACCESS_KEY
-                    )
+                    aws_secret_access_key = SECRET_ACCESS_KEY,
+                    region_name = "eu-west-2",
+                    config = boto3.session.Config(s3={"addresing_style":"path"})
+)
 
 async def get_db() -> AsyncSession:
     async with AsyncSessionLocal() as session:

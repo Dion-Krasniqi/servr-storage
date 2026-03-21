@@ -11,12 +11,14 @@ services:
       - ./init-db:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
+    networks:
+      - app-net
   minio:
     image: minio/minio:latest
     container_name: minio-container
     environment: 
-      MINIO_ROOT_USER: ${ACCESS_KEY_ID}
-      MINIO_ROOT_PASSWORD: ${SECRET_ACCESS_KEY}
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY}
     volumes:
       - ./minio:/data
     ports:
@@ -24,6 +26,8 @@ services:
       - "9001:9001"
     command: server /data --console-address ":9001"
     restart: unless-stopped
+    networks:
+      - app-net
 
   rust:
     build:
@@ -31,13 +35,15 @@ services:
     container_name: rst-container
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      ACCOUNT_ID: ${ACCOUNT_ID}
-      ACCESS_KEY_ID: ${ACCESS_KEY_ID}
-      SECRET_ACCESS_KEY: ${SECRET_ACCESS_KEY}
-      MINIO_ENDPOINT: http://minio-container:9000
+      #ACCOUNT_ID: ${ACCOUNT_ID}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
     depends_on:
       - postgres
       - minio
+    networks:
+      - app-net
 
   fastapi:
     build:
@@ -45,12 +51,19 @@ services:
     container_name: fastapi-container
     environment:
       DATABASE_URL: ${DATABASE_URL_ASYNCPG}
-      ACCOUNT_ID: ${ACCOUNT_ID}
-      ACCESS_KEY_ID: ${ACCESS_KEY_ID}
-      SECRET_ACCESS_KEY: ${SECRET_ACCESS_KEY}
-      SECRET_KEY: ${SECRET_KEY}
+      # ACCOUNT_ID: ${ACCOUNT_ID}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      #SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
     ports:
       - "8001:80"
     depends_on:
       - rust
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    driver: bridge
