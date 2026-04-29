@@ -1,9 +1,8 @@
 from typing import Annotated
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Form
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Form, Response
 from fastapi.security import OAuth2PasswordBearer
-#from minio import Minio
-#from minio.error import S3Error
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import httpx
 
@@ -15,9 +14,17 @@ import os
 
 
 app = FastAPI()
+app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173",
+                       "https://cuddly-telegram-jj9qx5j6gq96hjj9w-5173.app.github.dev",],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "Cookie"],
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="sign-in")
 #ACCOUNT_ID = os.getenv("ACCOUNT_ID");
-ENDPOINT = os.getnev("MINIO_ENDPOINT")
+ENDPOINT = os.getenv("MINIO_ENDPOINT")
 ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
@@ -46,26 +53,42 @@ async def read_self(current_user: Annotated[DatabaseUser, Depends(get_current_ac
 
 # curl -X POST "http://localhost:8001/sign-in" -H "Content-Type: application/json" -d '{"email":"EMAIL","password":"PASSWORD"}'
 @app.post("/sign-in")
-async def login_user(form: SignInForm, session: AsyncSession = Depends(get_db))->Token:
+async def login_user(
+        form: SignInForm, 
+        response: Response,
+        session: AsyncSession = Depends(get_db)
+):
     user = await authenticate_user(form.email, form.password, session)
     if not user:
         raise HTTPException(status_code=400,
-                            detail="Incorrect email or password",
-                            headers={"WWW-Authenticate":"Bearer"},
-                            )
+                            detail="Incorrect email or password")
     access_token_expires = timedelta(minutes=TOKEN_EXPIRES)
     access_token = create_access_token(data={"sub":user.email},
                                        expires_delta=access_token_expires)
-
-    return Token(access_token=access_token, token_type="bearer")
+    response.set_cookie(
+            key="session",
+            value=access_token,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            mex_age=TOKEN_EXPIRES * 60
+    )
+    return {"ok": True}
 
 # curl -X POST "http://localhost:8001/sign-up" -H "Content-Type: application/json" -d '{"email":"EMAIL","password":"PASSWORD"}'
 @app.post("/sign-up")
-async def create_user(form: SignUpForm, session: AsyncSession = Depends(get_db)):
+async def create_user(
+        form: SignUpForm, 
+        session: AsyncSession = Depends(get_db)
+):
     user_id = await create_new_user(form.email, form.password, session, s3)
     return {"message":"sign-up"}
 
 # curl -X POST "http://localhost:8001/upload-file" -H "Authorization: Bearer [TOKEN]" -F "file=@/path/to/your/file"
+@app.post("/sign-out")
+async def sign_out(response: Response):
+    response.delete_cookie("session")
+    return {"ok": True}
 @app.post("/upload-file")
 async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_active_user)],
                       file: UploadFile=File(...),

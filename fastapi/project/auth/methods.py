@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 from typing import Annotated
 from datetime import datetime, timedelta, timezone
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Cookie
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
 from sqlalchemy import select, insert, delete
@@ -63,20 +63,27 @@ def create_access_token(data:dict, expires_delta: timedelta | None = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)],
-                           session: AsyncSession = Depends(get_db)):
-    credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                                          detail="Couldn't validate credentials",
-                                          headers={"WWW-Authenticate":"Bearer"})
+async def get_current_user(
+        #token: Annotated[str, Depends(oauth2_scheme)],
+        db: AsyncSession = Depends(get_db),
+        session: str = Cookie(alias="session", default=None)
+):
+    credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Couldn't validate credentials"
+    )
+    if not session:
+        raise credentials_exception
+
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(session, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
         if email is None:
             raise credentials_exception
         token_data = TokenData(email=email)
     except InvalidTokenError:
         raise credentials_exception
-    user = await get_user(token_data.email, session)
+    user = await get_user(token_data.email, db)
     if user is None:
         raise credentials_exception
     return user
