@@ -69,9 +69,9 @@ async def login_user(
             key="session",
             value=access_token,
             httponly=True,
-            secure=True,
-            samesite="strict",
-            mex_age=TOKEN_EXPIRES * 60
+            secure=False,
+            samesite="lax",
+            max_age=TOKEN_EXPIRES * 60
     )
     return {"ok": True}
 
@@ -124,7 +124,7 @@ async def get_files(current_user: Annotated[DatabaseUser, Depends(get_current_ac
     
     if not data:
         return []
-    return data
+    return list(data.values())
 
 # curl -X POST "http://localhost:8001/delete-file" -H "Content-Type: application/json" -d '{"file_id":"FILE_ID"}'
 @app.post("/delete-file")
