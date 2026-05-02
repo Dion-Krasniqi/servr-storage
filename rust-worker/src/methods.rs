@@ -156,6 +156,7 @@ pub async fn get_files(State(state): State<AppState>,
 
         file_map.insert(file.file_id,
             FileResponse {
+            file_id: file.file_id,
             owner_id: file.owner_id,
             parent_id: file.parent_id,
             file_name: file.file_name,
@@ -196,6 +197,7 @@ pub async fn create_folder(State(state): State<AppState>,
     let shared_with: Vec<Uuid> = Vec::new();
     
     let new_folder = FileResponse {
+        file_id: folder_id,
         owner_id: user_id,
         parent_id: parent_id,
         file_name: folder_name.clone(),
@@ -392,6 +394,7 @@ pub async fn upload_file(State(state): State<AppState>,
                                                 _ => HashMap::new(), 
                                             };
                                             let uploaded_file = FileResponse {
+                                                file_id: file_id,
                                                 owner_id: owner_id,
                                                 parent_id: parent_id,
                                                 file_name: s3_name,

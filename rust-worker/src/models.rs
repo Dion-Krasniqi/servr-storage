@@ -36,7 +36,7 @@ pub struct DatabaseFile {
 #[derive(Debug, Serialize, Clone)]
 pub struct FileResponse {
     //pub file: DatabaseFile
-    //pub file_id: Uuid,
+    pub file_id: Uuid,
     pub owner_id: Uuid,
     pub parent_id: Option<Uuid>,
     pub file_name: String,
