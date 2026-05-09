@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Form, Response
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 import httpx
 
@@ -160,3 +161,22 @@ async def create_folder(current_user: Annotated[DatabaseUser, Depends(get_curren
                                     "folder_name": form.folder_name,
                                     "parent_id":form.parent_id,},)
 
+@app.get("/files/{file_id}/download")
+async def download_file(current_user: Annotated[DatabaseUser, Depends(get_current_activ_user)],
+                        file_id: str):
+    owner_id = str(current_user.user_id)
+    async with httpx.AsyncClient() as client:
+        url_response = await client.get('http://rust:3000/download-file',
+                                    json={"owner_id":owner_id,
+                                          "file_id":file_id,
+                                          }
+                                    )
+        minio_url = url_response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(minio_url)
+        return StreamingResponse(
+                iter([response.content]),
+                media_type=response.headers.get("content-type",
+                                                "application/octet-stream"),
+                headers={"Content-Disposition": f"attachment; filename={file_id}"}
+                )

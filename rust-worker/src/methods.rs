@@ -533,7 +533,7 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
                          WHERE file_id = ($2) AND owner_id = ($3);"#)
         .bind(&name)
         .bind(&file_id)
-        .bind(&owner_id)
+    .bind(&owner_id)
         .execute(pool)
         .await {
             Ok(_) => {  if let Some(mut e) = state.cache.get(&owner_id).await {
@@ -549,4 +549,29 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
                         return Err(ServerError::DatabaseError(e.to_string()))
                       },
         }
+}
+pub async fn download_file(State(state): State<AppState>,
+                           payload: extract::Json<DeleteFileForm>
+) -> Result<Json<String>, ServerError> {
+    let owner_id = Uuid::parse_str(&payload.owner_id)
+        .map_err(|e| ServerError::InternalError(e.to_string()))?;
+    let file_id = Uuid::parse_str(&payload.file_id)
+        .map_err(|e| ServerError::InternalError(e.to_string()))?;
+    // fetch from cache first 
+    let pool = &state.pool;
+    let row = sqlx::query_as::<_,DatabaseFile>(r#"SELECT url FROM files
+                                      WHERE file_id = ($1) 
+                                      AND owner_id = ($2);"#) 
+                .bind(&file_id)
+                .bind(&owner_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| ServerError::DatabaseError(e.to_string()))?;
+    let url = match row {
+        Some(row) => row.url.ok_or(ServerError
+            ::InternalError("No url".to_string()))?,
+        None => get_presigned_url(&state.client, 
+            &payload.owner_id, &payload.file_id).await?,
+    };
+    Ok(Json(url.to_string()))
 }

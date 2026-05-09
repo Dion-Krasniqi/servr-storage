@@ -15,4 +15,4 @@ Python sends the requests here when it comes to the non-auth stuff. Http worker 
 File caching handled by async moka.
 
 ## Object Storage
-Currently the object storage is provided by Cloudflare, mostly for convenience, but the plan is to host a minio cluster and handle the rest similarly.
+Currently using a self hosted Minio instance, but in the future have to migrate to another solution

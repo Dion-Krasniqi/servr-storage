@@ -15,6 +15,7 @@ use crate::methods::{get_files,
                      upload_file, 
                      delete_file, 
                      rename_file,
+                     download_file,
                      create_bucket};
 
 use crate::models::{AppState, FileResponse};
@@ -120,6 +121,7 @@ pub async fn setup() -> Result<Router, s3::Error> {
         .route("/create-bucket", post(create_bucket))
         .route("/rename-file", post(rename_file))
         .route("/create-folder", post(create_folder))
+        .route("/download-file", post(download_file))
         .route("/", get(hello_world))
         .with_state(state);
  
