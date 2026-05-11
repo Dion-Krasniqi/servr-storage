@@ -162,16 +162,19 @@ async def create_folder(current_user: Annotated[DatabaseUser, Depends(get_curren
                                     "parent_id":form.parent_id,},)
 
 @app.get("/files/{file_id}/download")
-async def download_file(current_user: Annotated[DatabaseUser, Depends(get_current_activ_user)],
+async def download_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)],
                         file_id: str):
     owner_id = str(current_user.user_id)
     async with httpx.AsyncClient() as client:
-        url_response = await client.get('http://rust:3000/download-file',
+        url_response = await client.post('http://rust:3000/download-file',
                                     json={"owner_id":owner_id,
                                           "file_id":file_id,
                                           }
                                     )
-        minio_url = url_response.json()
+        minio_url = url_response.text.strip().strip('"')
+
+
+        print(minio_url)
         async with httpx.AsyncClient() as client:
             response = await client.get(minio_url)
         return StreamingResponse(

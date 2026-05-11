@@ -559,7 +559,7 @@ pub async fn download_file(State(state): State<AppState>,
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
     // fetch from cache first 
     let pool = &state.pool;
-    let row = sqlx::query_as::<_,DatabaseFile>(r#"SELECT url FROM files
+    let row = sqlx::query_as::<_,(Option<String>,)>(r#"SELECT url FROM files
                                       WHERE file_id = ($1) 
                                       AND owner_id = ($2);"#) 
                 .bind(&file_id)
@@ -568,10 +568,10 @@ pub async fn download_file(State(state): State<AppState>,
                 .await
                 .map_err(|e| ServerError::DatabaseError(e.to_string()))?;
     let url = match row {
-        Some(row) => row.url.ok_or(ServerError
-            ::InternalError("No url".to_string()))?,
-        None => get_presigned_url(&state.client, 
+        Some((Some(database_url),)) => database_url,
+        _ => get_presigned_url(&state.client,
             &payload.owner_id, &payload.file_id).await?,
     };
+    println!("{}", url);
     Ok(Json(url.to_string()))
 }
