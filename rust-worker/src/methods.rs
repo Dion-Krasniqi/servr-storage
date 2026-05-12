@@ -11,6 +11,7 @@ use std::time::Duration;
 use std::path::Path;
 use std::collections::HashMap;
 use failure;
+use serde_json::Value;
 
 use crate::models::{DatabaseFile,
                     FileResponse,
@@ -552,26 +553,64 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
 }
 pub async fn download_file(State(state): State<AppState>,
                            payload: extract::Json<DeleteFileForm>
-) -> Result<Json<String>, ServerError> {
+) -> Result<Json<serde_json::Value>, ServerError> {
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
     let file_id = Uuid::parse_str(&payload.file_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
     // fetch from cache first 
-    let pool = &state.pool;
-    let row = sqlx::query_as::<_,(Option<String>,)>(r#"SELECT url FROM files
+    let mut url = if let Some(c) = state.cache.get(&owner_id).await {
+            let cached_file: FileResponse = c.get(&file_id).unwrap().clone();
+            if let Some(c_url) = cached_file.url {
+                   Some(c_url)
+            } else {
+                None
+            }
+    } else { None };
+    if url.is_none() {
+        let row = sqlx::query_as::<_,(Option<String>,String)>(r#"SELECT file_name, url FROM files
                                       WHERE file_id = ($1) 
                                       AND owner_id = ($2);"#) 
                 .bind(&file_id)
                 .bind(&owner_id)
-                .fetch_optional(pool)
+                .fetch_optional(&state.pool)
                 .await
                 .map_err(|e| ServerError::DatabaseError(e.to_string()))?;
-    let url = match row {
-        Some((Some(database_url),)) => database_url,
-        _ => get_presigned_url(&state.client,
-            &payload.owner_id, &payload.file_id).await?,
+        match row {
+            Some((Some(database_url),file_name)) => {
+                // updating cache 
+                if let Some(mut c) = state.cache.get(&owner_id).await {
+                    c.entry(file_id)
+                        .and_modify(|f| {
+                            // since doing all this consider just refetching from database
+                            f.url = Some(database_url.clone());
+                        });
+                    state.cache.remove(&owner_id).await;
+                    state.cache.insert(owner_id.clone(), c).await;
+                };
+                url = Some(database_url);
+            },
+            _ => {  
+                    //let key = s3_key(file.file_id.to_string(), &file.extension);
+                    let new_url = get_presigned_url(&state.client,
+                                    &payload.owner_id, &payload.file_id).await?;
+
+                    let cur_date = Utc::now();
+                    sqlx::query(r#"UPDATE files
+                                   SET last_modified = ($1),
+                                   url = ($2)
+                                   WHERE file_id = ($3);"#) 
+                    .bind(&cur_date)
+                    .bind(&new_url)
+                    .bind(&file_id)
+                    .execute(&state.pool)
+                    .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?; 
+
+                   url = Some(new_url);
+            },
+        }
     };
-    println!("{}", url);
-    Ok(Json(url.to_string()))
+    println!("{}", url.clone().unwrap());
+    let v: Value = serde_json::json!({"url":url});
+    Ok(Json(v))
 }
