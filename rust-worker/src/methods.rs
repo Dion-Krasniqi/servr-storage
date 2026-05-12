@@ -5,7 +5,7 @@ use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
 
 use uuid::Uuid;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use bytes::Bytes;
 use std::time::Duration;
 use std::path::Path;
@@ -558,17 +558,28 @@ pub async fn download_file(State(state): State<AppState>,
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
     let file_id = Uuid::parse_str(&payload.file_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
-    // fetch from cache first 
-    let mut url = if let Some(c) = state.cache.get(&owner_id).await {
-            let cached_file: FileResponse = c.get(&file_id).unwrap().clone();
-            if let Some(c_url) = cached_file.url {
-                   Some(c_url)
-            } else {
-                None
+
+    let cur_date = Utc::now();
+    let mut file_name = payload.file_id.clone();
+    let mut url: Option<String> = None;
+    if let Some(c) = state.cache.get(&owner_id).await {
+        if let Some(cached_file) = c.get(&file_id) {
+            if let Some(c_url) = &cached_file.url {
+                if let Some(date) = cached_file.last_modified {
+                   if date + chrono::Duration::days(6) >= cur_date {
+                        file_name = cached_file.file_name.clone();
+                        url = Some(c_url.to_string());
+                   }
+                }
             }
-    } else { None };
+        }
+    }
     if url.is_none() {
-        let row = sqlx::query_as::<_,(Option<String>,String)>(r#"SELECT file_name, url FROM files
+        let row = sqlx::query_as::
+        <_,(Option<String>,
+            String,
+            Option<DateTime<Utc>>)>
+            (r#"SELECT url, file_name, last_modified FROM files
                                       WHERE file_id = ($1) 
                                       AND owner_id = ($2);"#) 
                 .bind(&file_id)
@@ -577,7 +588,8 @@ pub async fn download_file(State(state): State<AppState>,
                 .await
                 .map_err(|e| ServerError::DatabaseError(e.to_string()))?;
         match row {
-            Some((Some(database_url),file_name)) => {
+            Some((Some(database_url),fetched_file_name, Some(date)))
+                if date + chrono::Duration::days(6) >= cur_date => {
                 // updating cache 
                 if let Some(mut c) = state.cache.get(&owner_id).await {
                     c.entry(file_id)
@@ -589,28 +601,33 @@ pub async fn download_file(State(state): State<AppState>,
                     state.cache.insert(owner_id.clone(), c).await;
                 };
                 url = Some(database_url);
+                file_name = fetched_file_name;
             },
             _ => {  
                     //let key = s3_key(file.file_id.to_string(), &file.extension);
                     let new_url = get_presigned_url(&state.client,
                                     &payload.owner_id, &payload.file_id).await?;
 
-                    let cur_date = Utc::now();
-                    sqlx::query(r#"UPDATE files
+                    let fetched_file_name = sqlx::query_as::<_,(String,)>(r#"UPDATE files
                                    SET last_modified = ($1),
                                    url = ($2)
-                                   WHERE file_id = ($3);"#) 
+                                   WHERE file_id = ($3)
+                                   RETURNING file_name;"#) 
                     .bind(&cur_date)
                     .bind(&new_url)
                     .bind(&file_id)
-                    .execute(&state.pool)
+                    .fetch_one(&state.pool)
                     .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?; 
 
                    url = Some(new_url);
+                   file_name = fetched_file_name.0;
             },
         }
     };
-    println!("{}", url.clone().unwrap());
-    let v: Value = serde_json::json!({"url":url});
+    let url = url
+        .ok_or(ServerError::InternalError("Failed to get URL"
+        .to_string()))?;
+    println!("{}", url);
+    let v: Value = serde_json::json!({"url":url, "file_name":file_name});
     Ok(Json(v))
 }
