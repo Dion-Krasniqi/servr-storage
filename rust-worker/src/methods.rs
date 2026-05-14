@@ -95,10 +95,9 @@ pub async fn get_files(State(state): State<AppState>,
         if e.len() > 0 {
             let mut cached_files = e.clone();
             for (file_id, file) in &mut cached_files {
-                        let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
-                        || file.last_modified.is_none() 
-                        || file.last_modified
-                            .as_ref()
+                        let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())
+                            || file.last_modified.is_none() 
+                            || file.last_modified.as_ref()
                             .map(|date| *date + chrono::Duration::days(6) < cur_date).unwrap_or(true);
                         if update_url {
                             let key = s3_key(file_id.to_string(), &file.extension);
@@ -111,6 +110,7 @@ pub async fn get_files(State(state): State<AppState>,
                                         .bind(&file_id)
                                         .execute(pool)
                                         .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;                  
+                            file.last_modified = Some(cur_date);
                         }
             }
 
@@ -304,7 +304,7 @@ pub async fn upload_file(State(state): State<AppState>,
             .map_err(|e| ServerError::InternalError(e.to_string()))?),
   };
 
-  let name = Path::new(&filename).file_stem().unwrap();
+  let name = Path::new(&filename).file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
   let created_at = Some(Utc::now());
   let shared_with: Vec<Uuid> = Vec::new();
   let file_type = match content_type.as_str() {
@@ -341,7 +341,7 @@ pub async fn upload_file(State(state): State<AppState>,
       .bind(&file_id)
       .bind(&owner_id)
       .bind(&parent_id)
-      .bind(name.to_str())
+      .bind(name)
       .bind(file_size)
       .bind(&extension)
       .bind(&file_type)
@@ -356,7 +356,6 @@ pub async fn upload_file(State(state): State<AppState>,
                               return Err(ServerError::DatabaseError(e.to_string()))
                    }
       }
-  // basically match parent_id { Some(val) => {let parent_id = val ...}, None =>{}}
   if let Some(parent_id) = parent_id {
         match sqlx::query(r#"WITH RECURSIVE ancestors AS (
                                                     SELECT file_id, parent_id
@@ -388,39 +387,43 @@ pub async fn upload_file(State(state): State<AppState>,
   match client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
           .content_type(&content_type)
           .send()
-          .await { // S3 dependent switch
-                   Ok(_) => { match tx.commit().await { // Database dependent switch
-                                Ok(_) => {  let mut cached_files: HashMap<Uuid, FileResponse> = match state.cache.get(&owner_id).await {
-                                                Some(e) => e.clone(),
-                                                _ => HashMap::new(), 
-                                            };
-                                            let uploaded_file = FileResponse {
-                                                file_id: file_id,
-                                                owner_id: owner_id,
-                                                parent_id: parent_id,
-                                                file_name: s3_name,
-                                                extension: Some(extension.to_string()),
-                                                size: 0,
-                                                file_type:FileType::Media,
-                                                created_at: created_at,
-                                                last_modified: created_at,
-                                                shared_with: shared_with.clone(),
-                                                url: None,
-                                            };
-                                            cached_files.insert(file_id, uploaded_file);
-                                            state.cache.insert(owner_id, cached_files).await;
-                                            Ok(Json("File uploaded succesfully".to_string()))},
-                                Err(e) => {
-                                        eprintln!("Error {:?}", e);
-                                        return Err(ServerError::DatabaseError(e.to_string()))
-                                        }
-                                }
-                            },
+          .await { 
+                   Ok(_) => {},
                    Err(e) => {
                               eprintln!("Error {:?}", e);
                               return Err(ServerError::S3Error(e.into()))
                             },
-            }
+  }
+  match tx.commit()
+      .await {
+            Ok(_) => {},
+            Err(e) => {
+                        eprintln!("Error {:?}", e);
+                        return Err(ServerError::DatabaseError(e.to_string()))
+                      }
+  }
+  let mut cached_files: HashMap<Uuid, FileResponse> 
+      = match state.cache.get(&owner_id)
+    .await {
+                            Some(e) => e.clone(),
+                            _ => HashMap::new(), 
+    };
+  let uploaded_file = FileResponse {
+    file_id: file_id,
+    owner_id: owner_id,
+    parent_id: parent_id,
+    file_name: name.to_string(),
+    extension: Some(extension.to_string()),
+    size: file_size,
+    file_type:FileType::Media,
+    created_at: created_at,
+    last_modified: created_at,
+    shared_with: shared_with.clone(),
+    url: None,
+  };
+  cached_files.insert(file_id, uploaded_file);
+  state.cache.insert(owner_id, cached_files).await;
+  Ok(Json("File uploaded succesfully".to_string()))
 }
 
 
