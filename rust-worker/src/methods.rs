@@ -3,6 +3,7 @@ use axum_extra::extract::Multipart;
 use aws_sdk_s3 as s3;
 use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
+use sqlx::Acquire;
 
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
@@ -272,10 +273,8 @@ pub async fn upload_file(State(state): State<AppState>,
       _ => {}
       }
   };
-
-  let client = &state.client;
-  
-  if check_bucket(&client, &user_id).await? {
+ 
+  if check_bucket(&state.client, &user_id).await? {
       println!("Bucket does exit");
   } else {
     println!("User bucket not found");
@@ -286,12 +285,11 @@ pub async fn upload_file(State(state): State<AppState>,
   let owner_id = Uuid::parse_str(&user_id)
       .map_err(|e| ServerError::InternalError(e.to_string()))?;
 
-  let pool = &state.pool;
   let storage_used: i64 = sqlx::query_scalar(r#"SELECT storage_used
                                                 FROM users
                                                 WHERE user_id = ($1);"#)
       .bind(&owner_id)
-      .fetch_one(pool)
+      .fetch_one(&state.pool)
       .await
       .map_err(|e| ServerError::DatabaseError(format!("Failed to get storage. Error: {}", e)))?;
 
@@ -299,19 +297,20 @@ pub async fn upload_file(State(state): State<AppState>,
         return Err(ServerError::InternalError("Not enough storage".to_string())); 
   }
 
-  let file_id = Uuid::new_v4();
-  let extension = std::path::Path::new(&filename)
-      .extension()
-      .and_then(|s| s.to_str())
-      .unwrap_or("");
-  
+  let file_id = Uuid::new_v4();  
   let parent_id = match payload_parent_id.is_empty() {
         true => None,
         false => Some(Uuid::parse_str(&payload_parent_id)
             .map_err(|e| ServerError::InternalError(e.to_string()))?),
   };
 
-  let name = Path::new(&filename).file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+  let name = Path::new(&filename).file_stem()
+      .and_then(|s| s.to_str()).unwrap_or("unknown");
+  let extension = Path::new(&filename)
+      .extension()
+      .and_then(|s| s.to_str())
+      .unwrap_or("");
+  
   let created_at = Some(Utc::now());
   let shared_with: Vec<Uuid> = Vec::new();
   let file_type = match content_type.as_str() {
@@ -323,10 +322,9 @@ pub async fn upload_file(State(state): State<AppState>,
       _ => FileType::Other,
 
   };
- //maybe make this a function
- use sqlx::Acquire;
- let mut conn = pool.acquire().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
+ let mut conn = state.pool.acquire().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
  let mut tx = conn.begin().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
+ 
  // user table update
  match sqlx::query(r#"UPDATE users
               SET storage_used = storage_used + ($1)
@@ -388,10 +386,8 @@ pub async fn upload_file(State(state): State<AppState>,
                             }
             }
   } 
-
   let s3_name = s3_key(file_id.to_string(),&Some(extension.to_string())); 
-  
-  match client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
+  match state.client.put_object().bucket(&user_id).key(&s3_name).body(data.into())
           .content_type(&content_type)
           .send()
           .await { 
@@ -399,7 +395,7 @@ pub async fn upload_file(State(state): State<AppState>,
                    Err(e) => {
                               eprintln!("Error {:?}", e);
                               return Err(ServerError::S3Error(e.into()))
-                            },
+                    },
   }
   match tx.commit()
       .await {
@@ -409,12 +405,6 @@ pub async fn upload_file(State(state): State<AppState>,
                         return Err(ServerError::DatabaseError(e.to_string()))
                       }
   }
-  let mut cached_files: HashMap<Uuid, FileResponse> 
-      = match state.cache.get(&owner_id)
-    .await {
-                            Some(e) => e.clone(),
-                            _ => HashMap::new(), 
-    };
   let uploaded_file = FileResponse {
     file_id: file_id,
     owner_id: owner_id,
@@ -428,7 +418,14 @@ pub async fn upload_file(State(state): State<AppState>,
     shared_with: shared_with.clone(),
     url: None,
   };
-  cached_files.insert(file_id, uploaded_file);
+ 
+  let cached_files: HashMap<Uuid, FileResponse> = if let Some(mut e) = state.cache
+  .get(&owner_id).await {
+          e.insert(file_id, uploaded_file);
+          e
+  } else { 
+      HashMap::from([(file_id, uploaded_file)],) 
+  };
   state.cache.insert(owner_id, cached_files).await;
   Ok(Json("File uploaded succesfully".to_string()))
 }
@@ -442,21 +439,17 @@ pub async fn delete_file(State(state): State<AppState>,
     let file_id = Uuid::parse_str(&payload.file_id) 
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
     
-    let client = &state.client;
-    if (check_bucket(&client, &payload.owner_id)).await? {
-        //
-    } else {
+    if !((check_bucket(&state.client, &payload.owner_id)).await?) {
         println!("User bucket not found!");
         return Err(ServerError::NotFound("User bucket not found".to_string()));
     };
-    let pool = &state.pool;
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
     
-    use sqlx::Acquire;
-    let mut conn = pool.acquire().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
+    let mut conn = state.pool.acquire().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
     let mut tx = conn.begin().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
-
+    
+    // delete file from db
     let (extension, size, parent_id): (Option<String>, i64, Option<Uuid>) = sqlx::query_as(r#"DELETE FROM files
                                      WHERE file_id = ($1) AND owner_id = ($2)
                                      RETURNING extension, size, parent_id;"#)
@@ -465,7 +458,7 @@ pub async fn delete_file(State(state): State<AppState>,
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| ServerError::DatabaseError(format!("Database delete failed. Error: {}", e)))?;
-
+    // update user storage
     sqlx::query(r#"UPDATE users
                  SET storage_used = storage_used - ($1)
                  WHERE user_id = ($2);"#)
@@ -474,7 +467,7 @@ pub async fn delete_file(State(state): State<AppState>,
         .execute(&mut *tx)
         .await
         .map_err(|e| ServerError::DatabaseError(e.to_string()))?;  
-
+    // reduce respective storage from parent folders if any
     if let Some(parent_id) = parent_id {
         sqlx::query(r#"WITH RECURSIVE ancestors AS (
                                                     SELECT file_id, parent_id
@@ -493,36 +486,33 @@ pub async fn delete_file(State(state): State<AppState>,
             .bind(size)
             .execute(&mut *tx)
             .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
-    } 
-    //tx.commit().await.map_err(|e| GetFilesError::InternalError(e.to_string()))?;
-    let ext = extension.clone().unwrap_or_default();
+    }
+
+    let ext = extension.clone().unwrap_or("".to_string());
     let key = s3_key(payload.file_id.to_string(), &Some(ext));//payload.file_id.to_string() + "." + &ext;
 
-    /*let key = match extension {
-        Some(ext) => format!("{}.{}", payload.file_id, ext),
-        None => payload.file_id.clone(),
-    };*/
-    match client.delete_object().bucket(&payload.owner_id).key(key)
+    match state.client.delete_object().bucket(&payload.owner_id).key(key)
         .send().await {
-        Ok(_) => { match tx.commit().await {
-                            Ok(_) => {         
-                                            if let Some(e) = state.cache.get(&owner_id).await {
-                                                let mut cached_files = e;
-                                                cached_files.remove(&file_id);
-                                                state.cache.remove(&owner_id).await;
-                                                state.cache.insert(owner_id, cached_files).await;
-                                            }
-                                            
-                                            Ok(Json("File Deleted".to_string()))},
-                            Err(e) => {
-                                    eprintln!("Error {:?}", e);
-                                    return Err(ServerError::DatabaseError(e.to_string()))
-                            }}},
-        Err(e) => {
+                Ok(_) => {},
+                Err(e) => {
                     eprintln!("Error {:?}", e);
                     return Err(ServerError::S3Error(e.into()))
-                  }
-            }
+                },
+    }
+    match tx.commit().await {
+                Ok(_) => {},
+                Err(e) => {
+                            eprintln!("Error {:?}", e);
+                            return Err(ServerError::DatabaseError(e.to_string()))
+                },
+    }
+    if let Some(mut e) = state.cache.get(&owner_id).await {
+        e.remove(&file_id);
+        state.cache.remove(&owner_id).await;
+        state.cache.insert(owner_id, e).await;
+    }
+                                            
+    Ok(Json("File Deleted".to_string()))
 }
 
 pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<RenameFileForm>
