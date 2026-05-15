@@ -204,12 +204,11 @@ pub async fn create_folder(State(state): State<AppState>,
         file_name: folder_name.clone(),
         extension: None,
         size: 0,
-        file_type:FileType::Folder,
+        file_type: FileType::Folder,
         created_at: created_at,
         last_modified: created_at,
         shared_with: shared_with.clone(),
         url: None,
-
     };
     match sqlx::query(r#"INSERT into files (file_id, owner_id, parent_id, file_name,
                        size, file_type, created_at, last_modified, shared_with) 
@@ -224,15 +223,23 @@ pub async fn create_folder(State(state): State<AppState>,
         .bind(&created_at)
         .bind(shared_with)
         .execute(&state.pool).await {
-            Ok(_) => {  
-                        let mut files: HashMap<Uuid, FileResponse> = state.cache.get(&user_id).await.unwrap_or_default();
-                        files.insert(folder_id, new_folder.clone());
-                        state.cache.insert(user_id, files).await;
-                        Ok(Json("Uploaded File".to_string()))},
+            Ok(_) => {},
             Err(e) => {
                         eprintln!("Error {:?}", e);
-                        return Err(ServerError::DatabaseError(e.to_string()))},
+                        return Err(ServerError::DatabaseError(e.to_string()))
+            },
         }
+        let files = if let Some(mut cached_files) = state.cache.get(&user_id).await {
+            cached_files.insert(folder_id, new_folder.clone());
+            cached_files
+        } else {
+            let new_files: HashMap<Uuid, FileResponse> = HashMap::from(
+                [(folder_id, new_folder.clone()),]);
+            new_files
+        };
+        state.cache.insert(user_id, files).await;
+
+        Ok(Json("Created Folder".to_string()))
 }
 
 //2mb limit 
