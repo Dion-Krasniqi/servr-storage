@@ -21,6 +21,7 @@ use crate::models::{DatabaseFile,
                     FileType, 
                     DeleteFileForm,
                     RenameFileForm,
+                    DownloadFileForm,
                     AppState,
                     ServerError};
 
@@ -56,7 +57,7 @@ async fn get_presigned_url(client: &s3::Client, bucket_name: &str, object_key: &
 }
 
 fn s3_key(file_id: String, file_ext: &Option<String>)->String{
-    if let Some(e) = file_ext {
+    if let Some(e) = file_ext && e != "" {
         return file_id + "." + e;
     }
     return file_id;
@@ -65,16 +66,15 @@ fn s3_key(file_id: String, file_ext: &Option<String>)->String{
 pub async fn create_bucket(State(state): State<AppState>,
                            payload: extract::Json<OwnerId>
 ) -> Result<Json<String>, ServerError> {
-    let client = &state.client;
-    match client.create_bucket().bucket(&payload.owner_id).send()
-        .await
-        {   
-            Ok(_) => Ok(Json("success".to_string())),
+    match state.client.create_bucket()
+        .bucket(&payload.owner_id)
+        .send()
+        .await{   
+            Ok(_) => Ok(Json("Success".to_string())),
             Err(e) => {
                         eprintln!("Error {:?}", e);    
                         return Err(ServerError::S3Error(e.into()))
             }
-
     }
 }
 
@@ -91,11 +91,10 @@ pub async fn get_files(State(state): State<AppState>,
 
     let cur_date = Utc::now();
     
-    if let Some(e) = state.cache.get(&owner_id).await{
+    if let Some(mut e) = state.cache.get(&owner_id).await{
         println!("Cache hit, {} items", e.len()); 
         if e.len() > 0 {
-            let mut cached_files = e.clone();
-            for (file_id, file) in &mut cached_files {
+            for (file_id, file) in &mut e {
                         let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())
                             || file.last_modified.is_none() 
                             || file.last_modified.as_ref()
@@ -109,15 +108,14 @@ pub async fn get_files(State(state): State<AppState>,
                                         .bind(&cur_date)
                                         .bind(&file.url)
                                         .bind(&file_id)
-                                        .execute(pool)
+                                        .execute(&state.pool)
                                         .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;                  
                             file.last_modified = Some(cur_date);
                         }
             }
-
             state.cache.remove(&owner_id).await;
-            state.cache.insert(owner_id, cached_files.clone()).await;
-            return Ok(Json(cached_files.clone()));
+            state.cache.insert(owner_id, e.clone()).await;
+            return Ok(Json(e));
         }
         
     }
@@ -194,23 +192,15 @@ pub async fn create_folder(State(state): State<AppState>,
                    .map_err(|e| ServerError::InternalError(format!("Failed to parse parent id. Error: {}", e)))?),
     };
 
-    let folder_name = payload.folder_name.clone();
+    let folder_name =  payload.folder_name.trim();
+    if folder_name.is_empty() {
+        println!("Name empty");
+        return Err(ServerError::InternalError("Invalid name".to_string()));
+    };
+
     let created_at = Some(Utc::now());
     let shared_with: Vec<Uuid> = Vec::new();
     
-    let new_folder = FileResponse {
-        file_id: folder_id,
-        owner_id: user_id,
-        parent_id: parent_id,
-        file_name: folder_name.clone(),
-        extension: None,
-        size: 0,
-        file_type: FileType::Folder,
-        created_at: created_at,
-        last_modified: created_at,
-        shared_with: shared_with.clone(),
-        url: None,
-    };
     match sqlx::query(r#"INSERT into files (file_id, owner_id, parent_id, file_name,
                        size, file_type, created_at, last_modified, shared_with) 
                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);"#)
@@ -222,25 +212,39 @@ pub async fn create_folder(State(state): State<AppState>,
         .bind(FileType::Folder)
         .bind(&created_at)
         .bind(&created_at)
-        .bind(shared_with)
+        .bind(&shared_with)
         .execute(&state.pool).await {
             Ok(_) => {},
             Err(e) => {
                         eprintln!("Error {:?}", e);
                         return Err(ServerError::DatabaseError(e.to_string()))
             },
-        }
-        let files = if let Some(mut cached_files) = state.cache.get(&user_id).await {
+    }
+    let new_folder = FileResponse {
+        file_id: folder_id,
+        owner_id: user_id,
+        parent_id: parent_id,
+        file_name: folder_name.to_string(),
+        extension: None,
+        size: 0,
+        file_type: FileType::Folder,
+        created_at: created_at,
+        last_modified: created_at,
+        shared_with: shared_with,
+        url: None,
+    };
+
+    let files = if let Some(mut cached_files) = state.cache.get(&user_id).await {
             cached_files.insert(folder_id, new_folder.clone());
             cached_files
-        } else {
+    } else {
             let new_files: HashMap<Uuid, FileResponse> = HashMap::from(
                 [(folder_id, new_folder.clone()),]);
             new_files
-        };
-        state.cache.insert(user_id, files).await;
+    };
+    state.cache.insert(user_id, files).await;
 
-        Ok(Json("Created Folder".to_string()))
+    Ok(Json("Created Folder".to_string()))
 }
 
 //2mb limit 
@@ -436,13 +440,14 @@ pub async fn delete_file(State(state): State<AppState>,
 )->Result<Json<String>, ServerError> {
 
     println!("DeleteFile Ran");
-    let file_id = Uuid::parse_str(&payload.file_id) 
-        .map_err(|e| ServerError::InternalError(e.to_string()))?;
-    
     if !((check_bucket(&state.client, &payload.owner_id)).await?) {
         println!("User bucket not found!");
         return Err(ServerError::NotFound("User bucket not found".to_string()));
     };
+
+    let file_id = Uuid::parse_str(&payload.file_id) 
+        .map_err(|e| ServerError::InternalError(e.to_string()))?;
+    
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
     
@@ -519,40 +524,42 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
 )->Result<Json<String>, ServerError> {
 
     println!("Rename ran");
+    let name =  payload.file_name.trim();
+    if name.is_empty() {
+        println!("Name empty");
+        return Err(ServerError::InternalError("Invalid name".to_string()));
+    };
     let file_id = Uuid::parse_str(&payload.file_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
-    if payload.file_name.trim().is_empty() {
-        println!("Name empty");
-        return Err(ServerError::InternalError("Invalid name".to_string()));
-    };
-    let name = payload.file_name.trim();
-    let pool = &state.pool;
+    
+    //let name = payload.file_name.trim();
     match sqlx::query(r#"UPDATE files
                          SET file_name = ($1)
                          WHERE file_id = ($2) AND owner_id = ($3);"#)
         .bind(&name)
         .bind(&file_id)
-    .bind(&owner_id)
-        .execute(pool)
+        .bind(&owner_id)
+        .execute(&state.pool)
         .await {
-            Ok(_) => {  if let Some(mut e) = state.cache.get(&owner_id).await {
-                            e.entry(file_id)
-                                .and_modify(|f|
-                                f.file_name = name.to_string());
-                            state.cache.remove(&owner_id).await;
-                            state.cache.insert(owner_id, e).await;
-                        };
-                        Ok(Json("File renamed".to_string()))},
+            Ok(_) => {},
             Err(e) => {
                         eprintln!("Error {:?}", e);
                         return Err(ServerError::DatabaseError(e.to_string()))
-                      },
+            },
         }
+    if let Some(mut e) = state.cache.get(&owner_id).await {
+            e.entry(file_id)
+                .and_modify(|f| f.file_name = name.to_string());
+                state.cache.remove(&owner_id).await;
+                state.cache.insert(owner_id, e).await;
+    }
+
+    Ok(Json("File renamed".to_string()))
 }
 pub async fn download_file(State(state): State<AppState>,
-                           payload: extract::Json<DeleteFileForm>
+                           payload: extract::Json<DownloadFileForm>
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
@@ -604,9 +611,10 @@ pub async fn download_file(State(state): State<AppState>,
                 file_name = fetched_file_name;
             },
             _ => {  
-                    //let key = s3_key(file.file_id.to_string(), &file.extension);
+                    let extension =  payload.file_extension.clone().unwrap_or("".to_string());
+                    let key = s3_key(payload.file_id.to_string(), &Some(extension));
                     let new_url = get_presigned_url(&state.client,
-                                    &payload.owner_id, &payload.file_id).await?;
+                                    &payload.owner_id, &key).await?;
 
                     let fetched_file_name = sqlx::query_as::<_,(String,)>(r#"UPDATE files
                                    SET last_modified = ($1),

@@ -71,7 +71,12 @@ pub struct RenameFileForm {
     pub file_id: String,
     pub file_name: String,
 }
-
+#[derive(Debug,Deserialize)]
+pub struct DownloadFileForm {
+    pub owner_id: String,
+    pub file_id: String,
+    pub file_extension: Option<String>,
+}
 
 use std::collections::HashMap;
 #[derive(Clone)]
