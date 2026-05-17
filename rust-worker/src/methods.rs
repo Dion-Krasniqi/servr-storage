@@ -11,6 +11,7 @@ use bytes::Bytes;
 use std::time::Duration;
 use std::path::Path;
 use std::collections::HashMap;
+use std::sync::Arc;
 use failure;
 use serde_json::Value;
 
@@ -62,6 +63,17 @@ fn s3_key(file_id: String, file_ext: &Option<String>)->String{
     }
     return file_id;
 }
+fn update_url(//file: &FileResponse, 
+              file_url: &Option<String>,
+              file_modified: &Option<DateTime<Utc>>,
+              cur_date: DateTime<Utc>
+) -> bool {
+    file_url.as_ref().map_or(true, |u| u.is_empty())
+            || file_modified.is_none() 
+            || file_modified.as_ref()
+        .map(|date| *date + chrono::Duration::days(6) < cur_date)
+        .unwrap_or(true)
+}
 
 pub async fn create_bucket(State(state): State<AppState>,
                            payload: extract::Json<OwnerId>
@@ -91,58 +103,65 @@ pub async fn get_files(State(state): State<AppState>,
 
     let cur_date = Utc::now();
     
-    if let Some(mut e) = state.cache.get(&owner_id).await{
-        println!("Cache hit, {} items", e.len()); 
-        if e.len() > 0 {
-            for (file_id, file) in &mut e {
-                        let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())
-                            || file.last_modified.is_none() 
-                            || file.last_modified.as_ref()
-                            .map(|date| *date + chrono::Duration::days(6) < cur_date).unwrap_or(true);
-                        if update_url {
-                            let key = s3_key(file_id.to_string(), &file.extension);
-                            file.url = Some(get_presigned_url(client, &payload.owner_id, &key).await?);
+    if let Some(c) = state.cache.get(&owner_id).await { 
+        println!("Cache hit, {} items", c.len()); 
+        let to_update: Vec<Uuid> = c
+            .iter()
+            .filter(|(_,file)| update_url(&file.url, &file.last_modified, cur_date))
+            .map(|(id,_)| *id ).collect();
+        if to_update.is_empty() {
+            return Ok(Json((*c).clone()));
+        }
+        let mut e: HashMap<Uuid, FileResponse> = (*c).clone();
+        for file_id in to_update {
+                            let key = s3_key(file_id.to_string(), &(e[&file_id].extension));
+                            let file_url = Some(get_presigned_url(client,
+                                        &payload.owner_id, &key).await?);
+
+                            e.entry(file_id).and_modify(
+                            |f| { 
+                                f.url = file_url;                            
+                                f.last_modified = Some(cur_date);
+                                }
+                            );
+                            // move to in one go
                             sqlx::query(r#"UPDATE files SET last_modified = ($1),
                                                             url = ($2)
                                                         WHERE file_id = ($3);"#) 
                                         .bind(&cur_date)
-                                        .bind(&file.url)
+                                        .bind(&e[&file_id].url)
                                         .bind(&file_id)
                                         .execute(&state.pool)
                                         .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;                  
-                            file.last_modified = Some(cur_date);
-                        }
-            }
-            state.cache.remove(&owner_id).await;
-            state.cache.insert(owner_id, e.clone()).await;
-            return Ok(Json(e));
         }
-        
+        state.cache.remove(&owner_id).await;
+        state.cache.insert(owner_id, Arc::new(e.clone())).await;
+        return Ok(Json(e));
     }
 
     if !((check_bucket(&client, &payload.owner_id)).await?) {
         println!("User bucket not found!");
         return Err(ServerError::NotFound("User bucket not found".to_string()));
     }
-
-    let mut file_map: HashMap<Uuid, FileResponse> = HashMap::new();
-    
+ 
     let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id = ($1);")
         .bind(&owner_id)
         .fetch_all(pool)
         .await
         .map_err(|e| {  eprintln!("{:?}", e);
                         ServerError::DatabaseError(e.to_string())})?;
-
+    if files.len() == 0 {
+        // idk
+        return Ok(Json(HashMap::new()));
+    }
+    let mut file_map: HashMap<Uuid, FileResponse> = HashMap::new();
+    let mut to_update: Vec<Uuid> = vec![];
     for mut file in files {
-        let update_url = file.url.as_ref().map_or(true, |u| u.is_empty())  
-                        || file.last_modified.is_none() 
-                        || file.last_modified
-                            .as_ref()
-                            .map(|date| *date + chrono::Duration::days(6) < cur_date).unwrap_or(true);
-        if update_url {
+        if update_url(&file.url, &file.last_modified, cur_date) {
             let key = s3_key(file.file_id.to_string(), &file.extension);
             file.url = Some(get_presigned_url(client, &payload.owner_id, &key).await?);
+            to_update.push(file.file_id);
+            /* move in one go
             sqlx::query(r#"UPDATE files
                            SET last_modified = ($1),
                            url = ($2)
@@ -152,6 +171,7 @@ pub async fn get_files(State(state): State<AppState>,
                 .bind(&file.file_id)
                 .execute(pool)
                 .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?; 
+            */
         }
 
         file_map.insert(file.file_id,
@@ -170,7 +190,7 @@ pub async fn get_files(State(state): State<AppState>,
         });
     }
 
-    state.cache.insert(owner_id, file_map.clone()).await;
+    state.cache.insert(owner_id, Arc::new(file_map.clone())).await;
     Ok(Json(file_map))
 }
 

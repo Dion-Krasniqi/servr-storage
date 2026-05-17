@@ -7,6 +7,7 @@ use axum::{response::IntoResponse, http::StatusCode};
 use axum_extra::extract::multipart::MultipartError;
 use failure;
 use moka::future::Cache;
+use std::sync::Arc;
 
 #[derive(Deserialize)]
 pub struct OwnerId {
@@ -83,7 +84,7 @@ use std::collections::HashMap;
 pub struct AppState {
     pub pool: PgPool,
     pub client: s3::Client,
-    pub cache: Cache<Uuid, HashMap<Uuid, FileResponse>>,
+    pub cache: Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>>,
     
 }
 

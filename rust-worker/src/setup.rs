@@ -8,6 +8,7 @@ use moka::future::Cache;
 
 use uuid::Uuid;
 use std::env;
+use std::sync::Arc;
 use std::collections::HashMap;
 
 use crate::methods::{get_files, 
@@ -107,7 +108,7 @@ pub async fn setup() -> Result<Router, s3::Error> {
     // Cache Setup
     const NUM_THREADS: u64 = 100;
     
-    let cache: Cache<Uuid, HashMap<Uuid, FileResponse>> = 
+    let cache: Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>> = 
         Cache::new(NUM_THREADS);
 
     let state = AppState {pool, client, cache};
