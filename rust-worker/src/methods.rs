@@ -113,27 +113,31 @@ pub async fn get_files(State(state): State<AppState>,
             return Ok(Json((*c).clone()));
         }
         let mut e: HashMap<Uuid, FileResponse> = (*c).clone();
-        for file_id in to_update {
-                            let key = s3_key(file_id.to_string(), &(e[&file_id].extension));
-                            let file_url = Some(get_presigned_url(client,
-                                        &payload.owner_id, &key).await?);
-
-                            e.entry(file_id).and_modify(
-                            |f| { 
-                                f.url = file_url;                            
+        let mut updated_urls: Vec<String> = Vec::new();
+        for file_id in &to_update {
+            let key = s3_key(file_id.to_string(), &(e[&file_id].extension));
+            let file_url = get_presigned_url(client, &payload.owner_id, &key).await?;
+            e.entry(*file_id).and_modify(|f| { 
+                                f.url = Some(file_url.clone());                            
                                 f.last_modified = Some(cur_date);
-                                }
-                            );
-                            // move to in one go
-                            sqlx::query(r#"UPDATE files SET last_modified = ($1),
-                                                            url = ($2)
-                                                        WHERE file_id = ($3);"#) 
-                                        .bind(&cur_date)
-                                        .bind(&e[&file_id].url)
-                                        .bind(&file_id)
-                                        .execute(&state.pool)
-                                        .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;                  
+            });
+            updated_urls.push(file_url);
         }
+        sqlx::query(r#"UPDATE files SET last_modified = ($1),
+                                                            url = updated.url
+                                                        FROM UNNEST($2::varchar[],
+                                                                    $3::uuid[])
+                                                        AS updated(url, id)
+                                                        WHERE file_id = updated.id;"#) 
+                                        .bind(&cur_date)
+                                        .bind(&updated_urls)
+                                        .bind(&to_update)
+                                        .execute(&state.pool)
+                                        .await
+                                        .map_err(|e| 
+                                            ServerError::DatabaseError(e.to_string()))?;            
+
+
         state.cache.remove(&owner_id).await;
         state.cache.insert(owner_id, Arc::new(e.clone())).await;
         return Ok(Json(e));
