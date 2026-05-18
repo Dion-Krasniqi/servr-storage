@@ -254,7 +254,8 @@ pub async fn create_folder(State(state): State<AppState>,
         url: None,
     };
 
-    let files = if let Some(mut cached_files) = state.cache.get(&user_id).await {
+    let files = if let Some(c) = state.cache.get(&user_id).await {
+            let mut cached_files = (*c).clone();
             cached_files.insert(folder_id, new_folder.clone());
             cached_files
     } else {
@@ -262,7 +263,7 @@ pub async fn create_folder(State(state): State<AppState>,
                 [(folder_id, new_folder.clone()),]);
             new_files
     };
-    state.cache.insert(user_id, files).await;
+    state.cache.insert(user_id, Arc::new(files)).await;
 
     Ok(Json("Created Folder".to_string()))
 }
@@ -443,15 +444,16 @@ pub async fn upload_file(State(state): State<AppState>,
     url: None,
   };
  
-  let cached_files: HashMap<Uuid, FileResponse> = if let Some(mut e) = state.cache
+  let cached_files: HashMap<Uuid, FileResponse> = if let Some(c) = state.cache
   .get(&owner_id).await {
+          let mut e = (*c).clone();
           e.insert(file_id, uploaded_file);
           e
   } else { 
       HashMap::from([(file_id, uploaded_file)],) 
   };
-  state.cache.insert(owner_id, cached_files).await;
-  Ok(Json("File uploaded succesfully".to_string()))
+  state.cache.insert(owner_id, Arc::new(cached_files)).await;
+  Ok(Json("File uploaded".to_string()))
 }
 
 
@@ -531,10 +533,11 @@ pub async fn delete_file(State(state): State<AppState>,
                             return Err(ServerError::DatabaseError(e.to_string()))
                 },
     }
-    if let Some(mut e) = state.cache.get(&owner_id).await {
+    if let Some(c) = state.cache.get(&owner_id).await {
+        let mut e = (*c).clone();
         e.remove(&file_id);
         state.cache.remove(&owner_id).await;
-        state.cache.insert(owner_id, e).await;
+        state.cache.insert(owner_id, Arc::new(e)).await;
     }
                                             
     Ok(Json("File Deleted".to_string()))
@@ -569,11 +572,12 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
                         return Err(ServerError::DatabaseError(e.to_string()))
             },
         }
-    if let Some(mut e) = state.cache.get(&owner_id).await {
+    if let Some(c) = state.cache.get(&owner_id).await {
+            let mut e = (*c).clone();
             e.entry(file_id)
                 .and_modify(|f| f.file_name = name.to_string());
-                state.cache.remove(&owner_id).await;
-                state.cache.insert(owner_id, e).await;
+            state.cache.remove(&owner_id).await;
+            state.cache.insert(owner_id, Arc::new(e)).await;
     }
 
     Ok(Json("File renamed".to_string()))
@@ -590,7 +594,7 @@ pub async fn download_file(State(state): State<AppState>,
     let mut file_name = payload.file_id.clone();
     let mut url: Option<String> = None;
     if let Some(c) = state.cache.get(&owner_id).await {
-        if let Some(cached_file) = c.get(&file_id) {
+        if let Some(cached_file) = (*c).clone().get(&file_id) {
             if let Some(c_url) = &cached_file.url {
                 if let Some(date) = cached_file.last_modified {
                    if date + chrono::Duration::days(6) >= cur_date {
@@ -618,14 +622,14 @@ pub async fn download_file(State(state): State<AppState>,
             Some((Some(database_url),fetched_file_name, Some(date)))
                 if date + chrono::Duration::days(6) >= cur_date => {
                 // updating cache 
-                if let Some(mut c) = state.cache.get(&owner_id).await {
-                    c.entry(file_id)
+                if let Some(c) = state.cache.get(&owner_id).await {
+                    let mut e = (*c).clone();
+                    e.entry(file_id)
                         .and_modify(|f| {
-                            // since doing all this consider just refetching from database
                             f.url = Some(database_url.clone());
                         });
                     state.cache.remove(&owner_id).await;
-                    state.cache.insert(owner_id.clone(), c).await;
+                    state.cache.insert(owner_id.clone(), Arc::new(e)).await;
                 };
                 url = Some(database_url);
                 file_name = fetched_file_name;
