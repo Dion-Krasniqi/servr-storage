@@ -136,8 +136,6 @@ pub async fn get_files(State(state): State<AppState>,
                                         .await
                                         .map_err(|e| 
                                             ServerError::DatabaseError(e.to_string()))?;            
-
-
         state.cache.remove(&owner_id).await;
         state.cache.insert(owner_id, Arc::new(e.clone())).await;
         return Ok(Json(e));
@@ -159,25 +157,16 @@ pub async fn get_files(State(state): State<AppState>,
         return Ok(Json(HashMap::new()));
     }
     let mut file_map: HashMap<Uuid, FileResponse> = HashMap::new();
-    let mut to_update: Vec<Uuid> = vec![];
+    let mut to_update_ids: Vec<Uuid> = Vec::new();
+    let mut to_update_urls: Vec<String> = Vec::new();
     for mut file in files {
         if update_url(&file.url, &file.last_modified, cur_date) {
             let key = s3_key(file.file_id.to_string(), &file.extension);
-            file.url = Some(get_presigned_url(client, &payload.owner_id, &key).await?);
-            to_update.push(file.file_id);
-            /* move in one go
-            sqlx::query(r#"UPDATE files
-                           SET last_modified = ($1),
-                           url = ($2)
-                           WHERE file_id = ($3);"#) 
-                .bind(&cur_date)
-                .bind(&file.url)
-                .bind(&file.file_id)
-                .execute(pool)
-                .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?; 
-            */
+            let file_url = get_presigned_url(client, &payload.owner_id, &key).await?;
+            file.url = Some(file_url.clone());
+            to_update_ids.push(file.file_id);            
+            to_update_urls.push(file_url);
         }
-
         file_map.insert(file.file_id,
             FileResponse {
             file_id: file.file_id,
@@ -193,6 +182,18 @@ pub async fn get_files(State(state): State<AppState>,
             url: file.url,
         });
     }
+    sqlx::query(r#"UPDATE files SET last_modified = ($1),
+                   url = updated.url
+                   FROM UNNEST($2::varchar[],$3::uuid[]) AS updated(url, id)
+                   WHERE file_id = updated.id;"#) 
+                                        .bind(&cur_date)
+                                        .bind(&to_update_urls)
+                                        .bind(&to_update_ids)
+                                        .execute(&state.pool)
+                                        .await
+                                        .map_err(|e| 
+                                            ServerError::DatabaseError(e.to_string()))?;            
+
 
     state.cache.insert(owner_id, Arc::new(file_map.clone())).await;
     Ok(Json(file_map))
@@ -463,7 +464,7 @@ pub async fn upload_file(State(state): State<AppState>,
 
 pub async fn delete_file(State(state): State<AppState>,
                          payload: extract::Json<DeleteFileForm>
-)->Result<Json<String>, ServerError> {
+)->Result<Json<Value>, ServerError> {
 
     println!("DeleteFile Ran");
     if !((check_bucket(&state.client, &payload.owner_id)).await?) {
@@ -544,11 +545,11 @@ pub async fn delete_file(State(state): State<AppState>,
         state.cache.insert(owner_id, Arc::new(e)).await;
     }
                                             
-    Ok(Json("File Deleted".to_string()))
+    Ok(Json(serde_json::json!({"return":"Success"})))
 }
 
 pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<RenameFileForm>
-)->Result<Json<String>, ServerError> {
+)->Result<Json<serde_json::Value>, ServerError> {
 
     println!("Rename ran");
     let name =  payload.file_name.trim();
@@ -583,8 +584,8 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
             state.cache.remove(&owner_id).await;
             state.cache.insert(owner_id, Arc::new(e)).await;
     }
-
-    Ok(Json("File renamed".to_string()))
+   
+    Ok(Json(serde_json::json!({"return":"Success"})))
 }
 pub async fn download_file(State(state): State<AppState>,
                            payload: extract::Json<DownloadFileForm>

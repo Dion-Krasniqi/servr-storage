@@ -97,7 +97,7 @@ async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_a
     user_id = current_user.user_id
     print(parent_id)
     async with httpx.AsyncClient() as client:
-        await client.post('http://rust:3000/upload-file',
+        response = await client.post('http://rust:3000/upload-file',
                           files={
                                 "file":(file.filename, await file.read(), file.content_type),
                           },
@@ -106,7 +106,11 @@ async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_a
                               "parent_id":parent_id or "",
                           },
                           )
-
+    
+    try:
+        body = reponse.json()
+    if not body.get("success"):
+        return {"response":False}
     return {"response":True}
 
 # curl -X GET "http://localhost:8001/get-files" -H "Authorization: Bearer [TOKEN]"
@@ -136,7 +140,11 @@ async def delete_file(current_user: Annotated[DatabaseUser, Depends(get_current_
         response = await client.post('http://rust:3000/delete-file', json={
                                     "owner_id": str(owner_id),
                                     "file_id":form.file_id,},) 
-    return {"response": response.is_success}
+    body = response.json()
+    if not body.get("success"):
+        return {"response": False}
+
+    return {"response": True}
 
 # curl -X POST "http://localhost:8001/rename-file" -H "Content-Type: application/json" -d '{"file_id":"ID","file_name":"NAME"}'
 @app.post("/rename-file")
@@ -144,11 +152,17 @@ async def rename_file(current_user: Annotated[DatabaseUser, Depends(get_current_
                       form: RenameForm):
     owner_id = current_user.user_id
     async with httpx.AsyncClient() as client:
-        await client.post('http://rust:3000/rename-file', json={
+        response = await client.post('http://rust:3000/rename-file', json={
                                     "owner_id": str(owner_id),
                                     "file_id": form.file_id,
                                     "file_name": form.file_name,
                                     },)
+    body = response.json()
+    if not body.get("success"):
+        return {"response": False}
+
+    return {"response": True}
+
         
 # curl -X POST "http://localhost:8001/create-folder" -H "Content-Type: application/json" -d '{"folder_name":"NAME","parent_id":"ID"}'
 @app.post("/create-folder")
@@ -156,10 +170,15 @@ async def create_folder(current_user: Annotated[DatabaseUser, Depends(get_curren
                         form: FolderForm):
     owner_id = current_user.user_id
     async with httpx.AsyncClient() as client:
-        await client.post('http://rust:3000/create-folder', json={
+        response = await client.post('http://rust:3000/create-folder', json={
                                     "owner_id": str(owner_id),
                                     "folder_name": form.folder_name,
                                     "parent_id":form.parent_id,},)
+    body = response.json()
+    if not body.get("success"):
+        return {"response": False}
+
+    return {"response": True}
 
 @app.get("/files/{file_id}/download")
 async def download_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)],
@@ -171,15 +190,15 @@ async def download_file(current_user: Annotated[DatabaseUser, Depends(get_curren
                                           "file_id":file_id,
                                           }
                                     )
-        minio_url = url_response.text.strip().strip('"')
-
-
+        file_name = url_response.json()["file_name"]
+        minio_url = url_response.json()["url"]
         print(minio_url)
+
         async with httpx.AsyncClient() as client:
             response = await client.get(minio_url)
         return StreamingResponse(
                 iter([response.content]),
                 media_type=response.headers.get("content-type",
                                                 "application/octet-stream"),
-                headers={"Content-Disposition": f"attachment; filename={file_id}"}
+                headers={"Content-Disposition": f"inline; filename={file_name}"}
                 )
