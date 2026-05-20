@@ -182,12 +182,13 @@ async def create_folder(current_user: Annotated[DatabaseUser, Depends(get_curren
 
 @app.get("/files/{file_id}/download")
 async def download_file(current_user: Annotated[DatabaseUser, Depends(get_current_active_user)],
-                        file_id: str):
+                        file_id: str,
+                        download: bool = False):
     owner_id = str(current_user.user_id)
     async with httpx.AsyncClient() as client:
         url_response = await client.post('http://rust:3000/download-file',
                                     json={"owner_id":owner_id,
-                                          "file_id":file_id,
+                                          "file_id": file_id,
                                           }
                                     )
         file_name = url_response.json()["file_name"]
@@ -196,9 +197,10 @@ async def download_file(current_user: Annotated[DatabaseUser, Depends(get_curren
 
         async with httpx.AsyncClient() as client:
             response = await client.get(minio_url)
+        header = f"attachment; filename={file_name}" if download else f"inline; filename={file_name}"
         return StreamingResponse(
                 iter([response.content]),
                 media_type=response.headers.get("content-type",
                                                 "application/octet-stream"),
-                headers={"Content-Disposition": f"inline; filename={file_name}"}
+                headers={"Content-Disposition": header }
                 )
