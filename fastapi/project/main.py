@@ -107,8 +107,8 @@ async def upload_file(current_user:Annotated[DatabaseUser, Depends(get_current_a
                           },
                           )
     
-    try:
-        body = reponse.json()
+    body = reponse.json()
+
     if not body.get("success"):
         return {"response":False}
     return {"response":True}

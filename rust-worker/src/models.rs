@@ -8,6 +8,7 @@ use axum_extra::extract::multipart::MultipartError;
 use failure;
 use moka::future::Cache;
 use std::sync::Arc;
+use std::collections::HashMap;
 
 #[derive(Deserialize)]
 pub struct OwnerId {
@@ -78,14 +79,24 @@ pub struct DownloadFileForm {
     pub file_id: String,
     pub file_extension: Option<String>,
 }
+#[derive(Debug,Deserialize)]
+pub struct LoginForm {
+    pub email: String,
+    pub password: String,
+}
 
-use std::collections::HashMap;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
     pub client: s3::Client,
     pub cache: Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>>,
     
+}
+#[derive(Clone)]
+pub struct AuthState {
+    pub pool: PgPool,
+    // probably users cache pub cache: 
+    // Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>>, 
 }
 
 

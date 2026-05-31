@@ -3,6 +3,7 @@ use axum::{routing::post,
            Router};
 
 use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
 use aws_sdk_s3 as s3;
 use moka::future::Cache;
 
@@ -18,19 +19,19 @@ use crate::methods::{get_files,
                      rename_file,
                      download_file,
                      create_bucket};
-
-use crate::models::{AppState, FileResponse};
+use crate::auth_methods::{login_user};
+use crate::models::{AppState, AuthState, FileResponse};
 
 async fn hello_world() -> &'static str {
     println!("Hello");
     "Hello"
 }
 
-pub async fn setup() -> Result<Router, s3::Error> {
+pub async fn file_setup(pool: PgPool) -> Result<Router, s3::Error> {
 
-    println!("On");
+    println!("File Listener On");
     
-    // Database Connection Setup
+    /* Database Connection Setup
     let database_url = match env::var("DATABASE_URL") {
         Ok(url) => url,
         Err(e) => { eprintln!("Error: {}", e);
@@ -43,7 +44,7 @@ pub async fn setup() -> Result<Router, s3::Error> {
     .connect(&database_url)
     .await
     .expect("Failed to create pool");
-    
+    */
     /*
     // R2 API Setup
     let account_id = match env::var("ACCOUNT_ID"){
@@ -126,6 +127,16 @@ pub async fn setup() -> Result<Router, s3::Error> {
         .route("/", get(hello_world))
         .with_state(state);
  
-    //Ok(())
+    Ok(app)
+}
+pub async fn auth_setup(pool: PgPool) -> Result<Router, s3::Error> {
+    println!("Auth Listener On");
+    
+    let state = AuthState {pool};
+
+    let app = Router::new()
+        .route("/sign-in", post(login_user)) 
+        .route("/", get(hello_world))
+            .with_state(state); 
     Ok(app)
 }
