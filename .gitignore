@@ -32,8 +32,6 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -44,7 +42,6 @@ pip-delete-this-directory.txt
 # PyBuilder
 .pybuilder/
 target/
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
 
 # Environments
@@ -65,3 +62,5 @@ venv.bak/
 target/
 rust-worker/target
 **/*.rs.bk
+#OS
+*.DS_Store

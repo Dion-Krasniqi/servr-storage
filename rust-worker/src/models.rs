@@ -80,11 +80,15 @@ pub struct DownloadFileForm {
     pub file_extension: Option<String>,
 }
 #[derive(Debug,Deserialize)]
-pub struct LoginForm {
+pub struct SignInForm {
     pub email: String,
     pub password: String,
 }
-
+#[derive(Debug,Deserialize)]
+pub struct SignUpForm {
+    pub email: String,
+    pub password: String,
+}
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,

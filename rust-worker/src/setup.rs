@@ -19,7 +19,7 @@ use crate::methods::{get_files,
                      rename_file,
                      download_file,
                      create_bucket};
-use crate::auth_methods::{login_user};
+use crate::auth_methods::{login_user,create_user};
 use crate::models::{AppState, AuthState, FileResponse};
 
 async fn hello_world() -> &'static str {
@@ -136,6 +136,7 @@ pub async fn auth_setup(pool: PgPool) -> Result<Router, s3::Error> {
 
     let app = Router::new()
         .route("/sign-in", post(login_user)) 
+        .route("/sign-up", post(create_user)) 
         .route("/", get(hello_world))
             .with_state(state); 
     Ok(app)
