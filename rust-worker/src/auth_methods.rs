@@ -1,4 +1,5 @@
 use axum::{extract, extract::State, Json};
+use axum_extra::extract::cookie::{Cookie, CookieJar};
 use crate::models::{ServerError,
                     AuthState,
                     SignInForm,
@@ -19,17 +20,27 @@ fn create_token(
     data: String,
     expires: usize,
 ) -> String {
+    let SECRET_KEY: String = match std::env::var("SECRET_KEY") {
+        Ok(key) => key,
+        Err(e) => {
+            "".to_string()
+        },
+    };
     let claim = Claims { sub: data, exp: expires };
-    let token = encode(&Header::default(), &claim, &EncodingKey::from_secret("secret".as_ref()));
+    let token = encode(&Header::default(), 
+        &claim, 
+        &EncodingKey::from_secret(SECRET_KEY.as_ref())
+    ).unwrap();
     return token
 }
 pub async fn login_user(
+    jar: CookieJar,
     State(state): State<AuthState>,
     payload: Json<SignInForm>,
-) -> Result<(), ServerError> {
+) -> Result<CookieJar, ServerError> {
     let email = payload.email.trim();
-    let user: Option<(String, bool)> = 
-        sqlx::query_as(r#"SELECT hashed_password,active from users
+    let user: Option<(String,String, bool)> = 
+        sqlx::query_as(r#"SELECT user_id,hashed_password,active from users
                           WHERE email = ($1);"#)
         .bind(&email)
         .fetch_optional(&state.pool)
@@ -39,16 +50,22 @@ pub async fn login_user(
         println!("user doesnt exist");
         return Err(ServerError::InternalError("User not found".to_string()));
     }
-    let hashed_password = if let Some((password, is_active)) = user && is_active {
-        password
-} else {
+    let (hashed_password, user_id) = if let Some((id, password, is_active)) = user && is_active {
+        (password, id)
+    } else {
         return Err(ServerError::InternalError("User not found or is not active".to_string())); 
     };
     let user_password = hash_algorithm(&payload.password);
     if !(user_password == hashed_password) { 
         return Err(ServerError::InternalError("User password does not match".to_string()));
     }
-    Ok(())
+    let token = create_token(user_id, 300);
+    let cookie = Cookie::build(("session", token))
+        .path("/")
+        .http_only(true)
+        .secure(false)
+        .build();
+    Ok(jar.add(cookie))
 }
 pub async fn create_user(
     State(state): State<AuthState>,
