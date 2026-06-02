@@ -2,8 +2,9 @@ use axum::{extract, extract::State, Json};
 use crate::models::{ServerError,
                     AuthState,
                     SignInForm,
-                    SignUpForm};
-
+                    SignUpForm,
+                    Claims};
+use jsonwebtoken::{encode, decode, Header, Algorithm, EncodingKey};
 use sha2::{Sha256, Digest};
 use uuid::Uuid;
 
@@ -12,6 +13,15 @@ fn hash_algorithm(
 ) -> String {
     let hash = Sha256::digest(password);
     format!("{:?}", hash)
+}
+// acts more like a session token for now
+fn create_token(
+    data: String,
+    expires: usize,
+) -> String {
+    let claim = Claims { sub: data, exp: expires };
+    let token = encode(&Header::default(), &claim, &EncodingKey::from_secret("secret".as_ref()));
+    return token
 }
 pub async fn login_user(
     State(state): State<AuthState>,

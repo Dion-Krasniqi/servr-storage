@@ -102,8 +102,11 @@ pub struct AuthState {
     // probably users cache pub cache: 
     // Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>>, 
 }
-
-
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    sub: String,
+    exp: usize,
+}
 // error return types
 #[derive(Debug)]
 pub enum ServerError {
