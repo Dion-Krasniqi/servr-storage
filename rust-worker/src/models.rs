@@ -99,6 +99,7 @@ pub struct AppState {
 #[derive(Clone)]
 pub struct AuthState {
     pub pool: PgPool,
+    pub key: String,
     // probably users cache pub cache: 
     // Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>>, 
 }
@@ -115,7 +116,7 @@ pub enum ServerError {
     InternalError(String),
     NotFound(String),   
     DatabaseError(String),
-    
+    Unauthorized(String),    
 }
 
 impl From<s3::Error> for ServerError {
@@ -156,6 +157,11 @@ impl IntoResponse for ServerError {
                     StatusCode::NOT_FOUND,
                     msg,
                 ).into_response(),
+            ServerError::Unauthorized(msg) => (
+                    StatusCode::UNAUTHORIZED,
+                    msg,
+                ).into_response(),
+
         }
     }
 }

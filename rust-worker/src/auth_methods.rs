@@ -5,7 +5,8 @@ use crate::models::{ServerError,
                     SignInForm,
                     SignUpForm,
                     Claims};
-use jsonwebtoken::{encode, decode, Header, Algorithm, EncodingKey};
+use jsonwebtoken::{encode, decode, Header, Algorithm, EncodingKey,
+                   DecodingKey, Validation};
 use sha2::{Sha256, Digest};
 use uuid::Uuid;
 
@@ -19,17 +20,12 @@ fn hash_algorithm(
 fn create_token(
     data: String,
     expires: usize,
+    key: &str,
 ) -> String {
-    let SECRET_KEY: String = match std::env::var("SECRET_KEY") {
-        Ok(key) => key,
-        Err(e) => {
-            "".to_string()
-        },
-    };
-    let claim = Claims { sub: data, exp: expires };
+        let claim = Claims { sub: data, exp: expires };
     let token = encode(&Header::default(), 
         &claim, 
-        &EncodingKey::from_secret(SECRET_KEY.as_ref())
+        &EncodingKey::from_secret(key.as_ref())
     ).unwrap();
     return token
 }
@@ -59,13 +55,34 @@ pub async fn login_user(
     if !(user_password == hashed_password) { 
         return Err(ServerError::InternalError("User password does not match".to_string()));
     }
-    let token = create_token(user_id, 300);
+    let token = create_token(user_id, 300, &state.key);
     let cookie = Cookie::build(("session", token))
         .path("/")
         .http_only(true)
         .secure(false)
         .build();
     Ok(jar.add(cookie))
+}
+pub async fn get_current_user(
+    State(state): State<AuthState>,
+    jar: CookieJar,
+) -> Result<String, ServerError> { 
+    let encd_token: String = if let Some(session_id) = jar.get("session") {
+        session_id.to_string()
+    } else {
+        return Err(
+            ServerError::Unauthorized("No session token found".to_string()));
+    };
+    let user: Claims = decode(&encd_token, 
+        &DecodingKey::from_secret(&state.key.as_ref()), 
+        &Validation::default()).unwrap().claims;
+
+    Ok(user.sub)
+}
+pub async fn logout_user(
+    jar: CookieJar,
+) -> Result<CookieJar, ServerError> {
+    Ok(jar.remove(Cookie::from("session")))
 }
 pub async fn create_user(
     State(state): State<AuthState>,
@@ -97,5 +114,4 @@ pub async fn create_user(
         .await
         .map_err(|e| ServerError::DatabaseError(format!("Failed to create user. Error: {}", e)))?;
     Ok(())
-
 }
