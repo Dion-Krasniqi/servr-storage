@@ -1,4 +1,4 @@
-use axum::{extract, extract::State, Json};
+use axum::{extract, extract::State, Json, http::StatusCode};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use crate::models::{ServerError,
                     AuthState,
@@ -88,7 +88,7 @@ pub async fn logout_user(
 pub async fn create_user(
     State(state): State<AuthState>,
     payload: Json<SignUpForm>,
-) -> Result<(), ServerError> {
+) -> Result<StatusCode, ServerError> {
     let email = payload.email.trim();
     let user = 
         sqlx::query(r#"SELECT email from users
@@ -114,7 +114,7 @@ pub async fn create_user(
         .execute(&state.pool)
         .await
         .map_err(|e| ServerError::DatabaseError(format!("Failed to create user. Error: {}", e)))?;
-    Ok(())
+    Ok(StatusCode::CREATED)
 }
 pub async fn login_test(
     State(state): State<AuthState>,

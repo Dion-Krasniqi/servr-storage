@@ -1,9 +1,13 @@
 #[path = "common/mod.rs"]
 mod common;
 use common::spawn_app;
+use serde::Deserialize;
 
 const USER_UUID: &str = "7c590022-c579-4e69-8eb4-92e67440f93f";
-
+#[derive(Deserialize)]
+struct LoginResponse {
+    token: String,
+}
 #[tokio::test]
 async fn test_get_files() {
     let app = spawn_app().await;
@@ -97,4 +101,39 @@ async fn test_rename_file(){
 }
 
 
+#[tokio::test]
+async fn test_create_account(){
+
+    let email = "test@mail.com";
+    let password = "12345678";
+    let app = spawn_app().await;
+    let res = app.client
+        .post(format!("{}/sign-up", app.base_url))
+        .json(&serde_json::json!({"email": email,
+                                  "password":password,}))
+        .send()
+        .await
+        .unwrap();
+    
+    assert_eq!(res.status(), 201);
+}
+#[tokio::test]
+async fn login_user()
+{
+    let email = "test@mail.com";
+    let password = "12345678";
+    let app = spawn_app().await;
+    let res = app.client
+        .post(format!("{}/sign-in", app.base_url))
+        .json(&serde_json::json!({"email": email,
+                                  "password":password,}))
+        .send()
+        .await
+        .unwrap();
+    
+    let token = match res.json::<LoginResponse>().await {
+        Ok(tk) => tk.token,
+        _ => "Nada".to_string(),
+    };
+}
 
