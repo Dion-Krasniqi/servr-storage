@@ -19,7 +19,10 @@ use crate::methods::{get_files,
                      rename_file,
                      download_file,
                      create_bucket};
-use crate::auth_methods::{login_user, create_user, get_current_user, logout_user};
+use crate::auth_methods::{login_user, create_user, get_current_user, 
+    logout_user,
+    login_test,
+    get_current_test,};
 use crate::models::{AppState, AuthState, FileResponse};
 
 async fn hello_world() -> &'static str {
@@ -137,9 +140,22 @@ pub async fn auth_setup(pool: PgPool) -> Result<Router, s3::Error> {
             "".to_string()
         },
     };
+    let mode: usize = match std::env::var("MODE").unwrap().as_str() {
+        "DEV" => 0,
+        _ =>  1,
+    };
 
     let state = AuthState {pool, key: SECRET_KEY};
-
+    if mode == 0 {
+        let app = Router::new()
+            .route("/sign-in", post(login_test)) 
+            .route("/sign-up", post(create_user))
+            .route("/sign-out", post(logout_user)) 
+            .route("/me", get(get_current_test)) 
+            .route("/", get(hello_world))
+                .with_state(state); 
+        return Ok(app);
+    }
     let app = Router::new()
         .route("/sign-in", post(login_user)) 
         .route("/sign-up", post(create_user))

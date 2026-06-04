@@ -4,6 +4,7 @@ use crate::models::{ServerError,
                     AuthState,
                     SignInForm,
                     SignUpForm,
+                    TestToken,
                     Claims};
 use jsonwebtoken::{encode, decode, Header, Algorithm, EncodingKey,
                    DecodingKey, Validation};
@@ -115,3 +116,42 @@ pub async fn create_user(
         .map_err(|e| ServerError::DatabaseError(format!("Failed to create user. Error: {}", e)))?;
     Ok(())
 }
+pub async fn login_test(
+    State(state): State<AuthState>,
+    payload: Json<SignInForm>,
+) -> Result<Json<String>, ServerError> {
+    let email = payload.email.trim();
+    let user: Option<(String,String, bool)> = 
+        sqlx::query_as(r#"SELECT user_id,hashed_password,active from users
+                          WHERE email = ($1);"#)
+        .bind(&email)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ServerError::DatabaseError(format!("Failed to fetch user. Error: {}", e)))?;
+    if user.is_none() {
+        println!("user doesnt exist");
+        return Err(ServerError::InternalError("User not found".to_string()));
+    }
+    let (hashed_password, user_id) = if let Some((id, password, is_active)) = user && is_active {
+        (password, id)
+    } else {
+        return Err(ServerError::InternalError("User not found or is not active".to_string())); 
+    };
+    let user_password = hash_algorithm(&payload.password);
+    if !(user_password == hashed_password) { 
+        return Err(ServerError::InternalError("User password does not match".to_string()));
+    }
+    let token = create_token(user_id, 300, &state.key);
+    Ok(Json(token))
+}
+pub async fn get_current_test(
+    State(state): State<AuthState>,
+    payload: Json<TestToken>,
+) -> Result<String, ServerError> { 
+    let user: Claims = decode(&payload.token, 
+        &DecodingKey::from_secret(&state.key.as_ref()), 
+        &Validation::default()).unwrap().claims;
+
+    Ok(user.sub)
+}
+

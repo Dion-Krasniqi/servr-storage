@@ -89,6 +89,11 @@ pub struct SignUpForm {
     pub email: String,
     pub password: String,
 }
+#[derive(Debug,Deserialize)]
+pub struct TestToken {
+    pub token: String,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
