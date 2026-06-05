@@ -18,8 +18,9 @@ use crate::methods::{get_files,
                      delete_file, 
                      rename_file,
                      download_file,
-                     create_bucket};
-use crate::auth_methods::{login_user, create_user, get_current_user, 
+                     create_bucket,
+                     authd_get_files};
+use crate::auth_methods::{login_user, create_user, read_me, 
     logout_user,
     login_test,
     get_current_test,};
@@ -127,6 +128,7 @@ pub async fn file_setup(pool: PgPool) -> Result<Router, s3::Error> {
         .route("/rename-file", post(rename_file))
         .route("/create-folder", post(create_folder))
         .route("/download-file", post(download_file))
+        .route("/authd/get-files", post(authd_get_files))
         .route("/", get(hello_world))
         .with_state(state);
  
@@ -160,7 +162,7 @@ pub async fn auth_setup(pool: PgPool) -> Result<Router, s3::Error> {
         .route("/sign-in", post(login_user)) 
         .route("/sign-up", post(create_user))
         .route("/sign-out", post(logout_user)) 
-        .route("/me", get(get_current_user)) 
+        .route("/me", get(read_me)) 
         .route("/", get(hello_world))
             .with_state(state); 
     Ok(app)

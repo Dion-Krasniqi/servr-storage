@@ -64,7 +64,7 @@ pub async fn login_user(
         .build();
     Ok(jar.add(cookie))
 }
-pub async fn get_current_user(
+pub async fn read_me(
     State(state): State<AuthState>,
     jar: CookieJar,
 ) -> Result<String, ServerError> { 
@@ -76,6 +76,28 @@ pub async fn get_current_user(
     };
     let user: Claims = decode(&encd_token, 
         &DecodingKey::from_secret(&state.key.as_ref()), 
+        &Validation::default()).unwrap().claims;
+
+    Ok(user.sub)
+}
+pub async fn get_current_user(
+    jar: CookieJar,
+) -> Result<String, ServerError> { 
+    let SECRET_KEY: String = match std::env::var("SECRET_KEY") {
+        Ok(key) => key,
+        Err(e) => {
+            "".to_string()
+        },
+    };
+
+    let encd_token: String = if let Some(session_id) = jar.get("session") {
+        session_id.to_string()
+    } else {
+        return Err(
+            ServerError::Unauthorized("No session token found".to_string()));
+    };
+    let user: Claims = decode(&encd_token, 
+        &DecodingKey::from_secret(&SECRET_KEY.as_ref()), 
         &Validation::default()).unwrap().claims;
 
     Ok(user.sub)

@@ -10,7 +10,7 @@ name = "rust_worker"
 path = "src/lib.rs"
 
 [dependencies]
-axum = "0.8.7"
+axum = { version = "0.8.7", features = ['macros'] }
 axum-extra = { version = "0.12.2", features = ["multipart","cookie"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }

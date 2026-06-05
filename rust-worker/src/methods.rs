@@ -4,6 +4,7 @@ use aws_sdk_s3 as s3;
 use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
 use sqlx::Acquire;
+use axum_extra::extract::cookie::{Cookie, CookieJar};
 
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
@@ -25,7 +26,7 @@ use crate::models::{DatabaseFile,
                     DownloadFileForm,
                     AppState,
                     ServerError};
-
+use crate::auth_methods::get_current_user;
 
 async fn check_bucket(client: &s3::Client, bucket_name: &str)->Result<bool, s3::Error>{
     match client.head_bucket().bucket(bucket_name).send().await {
@@ -668,3 +669,120 @@ pub async fn download_file(State(state): State<AppState>,
     let v: Value = serde_json::json!({"url":url, "file_name":file_name});
     Ok(Json(v))
 }
+#[axum::debug_handler]
+pub async fn authd_get_files(State(state): State<AppState>,
+                             jar: CookieJar,
+                             payload: Json<OwnerId>,
+)-> Result<Json<HashMap<Uuid, FileResponse>>, ServerError> {
+    
+    println!("We are fetching!");
+    let user_id = if let Ok(id) = get_current_user(jar.clone()).await {
+        id 
+    } else {
+        return Err(ServerError::Unauthorized("No sessiosn token found".to_string()));
+    };
+    let client = &state.client;
+    let pool = &state.pool;
+
+    let owner_id = Uuid::parse_str(&payload.owner_id) 
+        .map_err(|_| ServerError::InternalError("Failed to parse user id".to_string()))?;
+
+    let cur_date = Utc::now();
+    
+    if let Some(c) = state.cache.get(&owner_id).await { 
+        println!("Cache hit, {} items", c.len()); 
+        let to_update: Vec<Uuid> = c
+            .iter()
+            .filter(|(_,file)| update_url(&file.url, &file.last_modified, cur_date))
+            .map(|(id,_)| *id ).collect();
+        if to_update.is_empty() {
+            return Ok(Json((*c).clone()));
+        }
+        let mut e: HashMap<Uuid, FileResponse> = (*c).clone();
+        let mut updated_urls: Vec<String> = Vec::new();
+        for file_id in &to_update {
+            let key = s3_key(file_id.to_string(), &(e[&file_id].extension));
+            let file_url = get_presigned_url(client, &payload.owner_id, &key).await?;
+            e.entry(*file_id).and_modify(|f| { 
+                                f.url = Some(file_url.clone());                            
+                                f.last_modified = Some(cur_date);
+            });
+            updated_urls.push(file_url);
+        }
+        sqlx::query(r#"UPDATE files SET last_modified = ($1),
+                                                            url = updated.url
+                                                        FROM UNNEST($2::varchar[],
+                                                                    $3::uuid[])
+                                                        AS updated(url, id)
+                                                        WHERE file_id = updated.id;"#) 
+                                        .bind(&cur_date)
+                                        .bind(&updated_urls)
+                                        .bind(&to_update)
+                                        .execute(&state.pool)
+                                        .await
+                                        .map_err(|e| 
+                                            ServerError::DatabaseError(e.to_string()))?;            
+        state.cache.remove(&owner_id).await;
+        state.cache.insert(owner_id, Arc::new(e.clone())).await;
+        return Ok(Json(e));
+    }
+
+    if !((check_bucket(&client, &payload.owner_id)).await?) {
+        println!("User bucket not found!");
+        return Err(ServerError::NotFound("User bucket not found".to_string()));
+    }
+ 
+    let files = sqlx::query_as::<_,DatabaseFile>("SELECT * FROM files where owner_id = ($1);")
+        .bind(&owner_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {  eprintln!("{:?}", e);
+                        ServerError::DatabaseError(e.to_string())})?;
+    if files.len() == 0 {
+        // idk
+        return Ok(Json(HashMap::new()));
+    }
+    let mut file_map: HashMap<Uuid, FileResponse> = HashMap::new();
+    let mut to_update_ids: Vec<Uuid> = Vec::new();
+    let mut to_update_urls: Vec<String> = Vec::new();
+    for mut file in files {
+        if update_url(&file.url, &file.last_modified, cur_date) {
+            let key = s3_key(file.file_id.to_string(), &file.extension);
+            let file_url = get_presigned_url(client, &payload.owner_id, &key).await?;
+            file.url = Some(file_url.clone());
+            to_update_ids.push(file.file_id);            
+            to_update_urls.push(file_url);
+        }
+        file_map.insert(file.file_id,
+            FileResponse {
+            file_id: file.file_id,
+            owner_id: file.owner_id,
+            parent_id: file.parent_id,
+            file_name: file.file_name,
+            extension: file.extension,
+            size: file.size,
+            file_type: file.file_type,
+            created_at: file.created_at,
+            last_modified: Some(cur_date),
+            shared_with: file.shared_with,
+            url: file.url,
+        });
+    }
+    sqlx::query(r#"UPDATE files SET last_modified = ($1),
+                   url = updated.url
+                   FROM UNNEST($2::varchar[],$3::uuid[]) AS updated(url, id)
+                   WHERE file_id = updated.id;"#) 
+                                        .bind(&cur_date)
+                                        .bind(&to_update_urls)
+                                        .bind(&to_update_ids)
+                                        .execute(&state.pool)
+                                        .await
+                                        .map_err(|e| 
+                                            ServerError::DatabaseError(e.to_string()))?;            
+
+
+    state.cache.insert(owner_id, Arc::new(file_map.clone())).await;
+    Ok(Json(file_map))
+}
+
+
