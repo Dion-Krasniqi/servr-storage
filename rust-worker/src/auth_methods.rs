@@ -10,6 +10,8 @@ use jsonwebtoken::{encode, decode, Header, Algorithm, EncodingKey,
                    DecodingKey, Validation};
 use sha2::{Sha256, Digest};
 use uuid::Uuid;
+use crate::methods::create_bucket_func;
+use sqlx::Acquire;
 
 fn hash_algorithm(
     password: &str, 
@@ -77,7 +79,6 @@ pub async fn read_me(
     let user: Claims = decode(&encd_token, 
         &DecodingKey::from_secret(&state.key.as_ref()), 
         &Validation::default()).unwrap().claims;
-
     Ok(user.sub)
 }
 pub async fn get_current_user(
@@ -124,6 +125,9 @@ pub async fn create_user(
     }
     let user_id = Uuid::new_v4(); 
     let hashed_password = hash_algorithm(&payload.password);
+    let mut conn = state.pool.acquire().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
+    let mut tx = conn.begin().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
+
     sqlx::query(r#"INSERT INTO users (user_id, 
     email, hashed_password, active, super_user, storage_used)
                    VALUES ($1, $2, $3, $4, $5, $6);"#)
@@ -133,11 +137,23 @@ pub async fn create_user(
         .bind(true)
         .bind(false)
         .bind(0)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| ServerError::DatabaseError(format!("Failed to create user. Error: {}", e)))?;
+    let user_id = "123";
+    create_bucket_func(state.client, user_id)
+        .await.map_err(|e| ServerError::InternalError("Failed to create user bucket".to_string()))?;
+
+        /*Ok() => {},
+        _ => return Err(
+                ServerError::InternalError("Failed to create user bucket".to_string())),
+    }*/
+    //    match tx.commit().await {
+
+        
     Ok(StatusCode::CREATED)
 }
+
 pub async fn login_test(
     State(state): State<AuthState>,
     payload: Json<SignInForm>,

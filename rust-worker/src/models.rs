@@ -105,6 +105,7 @@ pub struct AppState {
 pub struct AuthState {
     pub pool: PgPool,
     pub key: String,
+    pub client: s3::Client,
     // probably users cache pub cache: 
     // Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>>, 
 }

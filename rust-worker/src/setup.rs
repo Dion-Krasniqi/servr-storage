@@ -18,8 +18,7 @@ use crate::methods::{get_files,
                      delete_file, 
                      rename_file,
                      download_file,
-                     create_bucket,
-                     authd_get_files};
+                     create_bucket,};
 use crate::auth_methods::{login_user, create_user, read_me, 
     logout_user,
     login_test,
@@ -128,7 +127,6 @@ pub async fn file_setup(pool: PgPool) -> Result<Router, s3::Error> {
         .route("/rename-file", post(rename_file))
         .route("/create-folder", post(create_folder))
         .route("/download-file", post(download_file))
-        .route("/authd/get-files", post(authd_get_files))
         .route("/", get(hello_world))
         .with_state(state);
  
@@ -146,8 +144,33 @@ pub async fn auth_setup(pool: PgPool) -> Result<Router, s3::Error> {
         "DEV" => 0,
         _ =>  1,
     };
+    let minio_url = match env::var("MINIO_ENDPOINT") {
+        Ok(url) => { 
+            println!("Minio: {}",url);
+            url
+        },
+        Err(e) => {
+                   eprintln!("Error {:?}", e);
+                   "".to_string()
+        },
+    };
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest()) 
+        //was from_env(), but default naming in the env file
+        .endpoint_url(minio_url)
+        //.credentials_provider(r2_credentials)
+        .region(aws_config::meta
+            ::region::RegionProviderChain::default_provider()
+            .or_else("eu-west-2"))
+        .load()
+        .await;
 
-    let state = AuthState {pool, key: SECRET_KEY};
+    let s3_config = s3::config::Builder::from(&config)
+        .force_path_style(true)
+        .build();
+
+    let client = s3::Client::from_conf(s3_config);
+
+    let state = AuthState {pool, key: SECRET_KEY, client};
     if mode == 0 {
         let app = Router::new()
             .route("/sign-in", post(login_test)) 
