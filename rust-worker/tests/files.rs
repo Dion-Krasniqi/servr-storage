@@ -8,21 +8,6 @@ const USER_UUID: &str = "7c590022-c579-4e69-8eb4-92e67440f93f";
 struct LoginResponse {
     token: String,
 }
-#[tokio::test]
-async fn test_get_files() {
-    let app = spawn_app().await;
-
-    let res = app.client
-        .post(format!("{}/get-files", app.base_url))
-        .json(&serde_json::json!({"owner_id":USER_UUID}))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(res.status(), 200);
-    let body: serde_json::Value = res.json().await.unwrap();
-    assert!(body.is_array());
-}
 
 #[tokio::test]
 async fn test_create_folder_wo_parent() {
@@ -135,5 +120,22 @@ async fn login_user()
         Ok(tk) => tk.token,
         _ => "Nada".to_string(),
     };
+    let correct_token = std::env("TEST_TOKEN");
+    assert_eq!(token, correct_token);
+}
+#[tokio::test]
+async fn test_get_files() {
+    let app = spawn_app().await;
+
+    let res = app.client
+        .post(format!("{}/get-files", app.base_url))
+        .header("Cookie", session_cookie)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), 200);
+    let body: serde_json::Value = res.json().await.unwrap();
+    assert!(body.is_array());
 }
 
