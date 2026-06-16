@@ -1,7 +1,7 @@
 use axum::{extract, extract::State, Json, http::StatusCode};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use crate::models::{ServerError,
-                    AuthState,
+                    AppState,
                     SignInForm,
                     SignUpForm,
                     TestToken,
@@ -17,7 +17,8 @@ fn hash_algorithm(
     password: &str, 
 ) -> String {
     let hash = Sha256::digest(password);
-    format!("{:?}", hash)
+    //format!("{:x}", hash)
+    hash.iter().map(|a| format!("{:02x}", a)).collect()
 }
 // acts more like a session token for now
 fn create_token(
@@ -34,11 +35,12 @@ fn create_token(
 }
 pub async fn login_user(
     jar: CookieJar,
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     payload: Json<SignInForm>,
 ) -> Result<CookieJar, ServerError> {
-    let email = payload.email.trim();
-    let user: Option<(String,String, bool)> = 
+    println!("{}", payload.email);
+    let email = payload.email.clone();
+    let user: Option<(Uuid, String, bool)> = 
         sqlx::query_as(r#"SELECT user_id,hashed_password,active from users
                           WHERE email = ($1);"#)
         .bind(&email)
@@ -58,7 +60,7 @@ pub async fn login_user(
     if !(user_password == hashed_password) { 
         return Err(ServerError::InternalError("User password does not match".to_string()));
     }
-    let token = create_token(user_id, 300, &state.key);
+    let token = create_token(user_id.to_string(), 300, &state.key);
     let cookie = Cookie::build(("session", token))
         .path("/")
         .http_only(true)
@@ -67,7 +69,7 @@ pub async fn login_user(
     Ok(jar.add(cookie))
 }
 pub async fn read_me(
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<String, ServerError> { 
     let encd_token: String = if let Some(session_id) = jar.get("session") {
@@ -109,10 +111,11 @@ pub async fn logout_user(
     Ok(jar.remove(Cookie::from("session")))
 }
 pub async fn create_user(
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     payload: Json<SignUpForm>,
 ) -> Result<StatusCode, ServerError> {
-    let email = payload.email.trim();
+    println!("{}", payload.email);
+    let email = payload.email.clone();
     let user = 
         sqlx::query(r#"SELECT email from users
                           WHERE email = ($1);"#)
@@ -140,22 +143,22 @@ pub async fn create_user(
         .execute(&mut *tx)
         .await
         .map_err(|e| ServerError::DatabaseError(format!("Failed to create user. Error: {}", e)))?;
-    let user_id = "123";
-    create_bucket_func(state.client, user_id)
+   
+    create_bucket_func(state.client, &user_id.to_string())
         .await.map_err(|e| ServerError::InternalError("Failed to create user bucket".to_string()))?;
-
+    tx.commit()
+        .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
         /*Ok() => {},
         _ => return Err(
                 ServerError::InternalError("Failed to create user bucket".to_string())),
-    }*/
-    //    match tx.commit().await {
+        }*/
 
         
     Ok(StatusCode::CREATED)
 }
 
 pub async fn login_test(
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     payload: Json<SignInForm>,
 ) -> Result<Json<String>, ServerError> {
     let email = payload.email.trim();
@@ -183,7 +186,7 @@ pub async fn login_test(
     Ok(Json(token))
 }
 pub async fn get_current_test(
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     payload: Json<TestToken>,
 ) -> Result<String, ServerError> { 
     let user: Claims = decode(&payload.token, 

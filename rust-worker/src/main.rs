@@ -1,4 +1,4 @@
-use rust_worker::setup::{file_setup, auth_setup};
+use rust_worker::setup::{setup};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::env;
@@ -18,13 +18,13 @@ async fn main() -> Result<(), aws_sdk_s3::Error>{
     .await
     .expect("Failed to create pool");
     let pool_c = pool.clone();
-    let file_l = tokio::task::spawn(async move { file_layer(pool).await }); 
-    let auth_l = tokio::task::spawn(async move { auth_layer(pool_c).await });
-    let _ = tokio::join!(file_l, auth_l);
+    let _ = main_layer(pool).await;
+    //let auth_l = tokio::task::spawn(async move { auth_layer(pool_c).await });
+    //let _ = tokio::join!(file_l, auth_l);
     Ok(())
 }
-async fn file_layer(pool: PgPool) {
-    let app = file_setup(pool).await.unwrap(); 
+async fn main_layer(pool: PgPool) {
+    let app = setup(pool).await.unwrap(); 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
         .unwrap();
@@ -33,6 +33,7 @@ async fn file_layer(pool: PgPool) {
         eprintln!("Error: {:?}", e);
     }
 }
+/*
 async fn auth_layer(pool: PgPool) {
     let app = auth_setup(pool).await.unwrap(); 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001")
@@ -43,3 +44,4 @@ async fn auth_layer(pool: PgPool) {
         eprintln!("Error: {:?}", e);
     }
 }
+*/

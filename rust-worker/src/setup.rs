@@ -30,9 +30,9 @@ async fn hello_world() -> &'static str {
     "Hello"
 }
 
-pub async fn file_setup(pool: PgPool) -> Result<Router, s3::Error> {
+pub async fn setup(pool: PgPool) -> Result<Router, s3::Error> {
 
-    println!("File Listener On");
+    println!("Listener On");
     
     /* Database Connection Setup
     let database_url = match env::var("DATABASE_URL") {
@@ -114,8 +114,15 @@ pub async fn file_setup(pool: PgPool) -> Result<Router, s3::Error> {
     
     let cache: Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>> = 
         Cache::new(NUM_THREADS);
+   
+    let key: String = match std::env::var("SECRET_KEY") {
+    Ok(k) => k,
+    Err(e) => {
+        "".to_string()
+        },
+    };
 
-    let state = AppState {pool, client, cache};
+    let state = AppState {pool, client, cache, key};
     
 
     //Axum HTTP Server Setup
@@ -127,20 +134,19 @@ pub async fn file_setup(pool: PgPool) -> Result<Router, s3::Error> {
         .route("/rename-file", post(rename_file))
         .route("/create-folder", post(create_folder))
         .route("/download-file", post(download_file))
+        .route("/sign-in", post(login_user)) 
+        .route("/sign-up", post(create_user))
+        .route("/sign-out", post(logout_user)) 
+        .route("/me", get(read_me)) 
         .route("/", get(hello_world))
         .with_state(state);
  
     Ok(app)
 }
+/*
 pub async fn auth_setup(pool: PgPool) -> Result<Router, s3::Error> {
     println!("Auth Listener On");
-    let SECRET_KEY: String = match std::env::var("SECRET_KEY") {
-        Ok(key) => key,
-        Err(e) => {
-            "".to_string()
-        },
-    };
-    let mode: usize = match std::env::var("MODE").unwrap().as_str() {
+        let mode: usize = match std::env::var("MODE").unwrap().as_str() {
         "DEV" => 0,
         _ =>  1,
     };
@@ -172,6 +178,7 @@ pub async fn auth_setup(pool: PgPool) -> Result<Router, s3::Error> {
 
     let state = AuthState {pool, key: SECRET_KEY, client};
     if mode == 0 {
+        println!("Wrong");
         let app = Router::new()
             .route("/sign-in", post(login_test)) 
             .route("/sign-up", post(create_user))
@@ -182,11 +189,8 @@ pub async fn auth_setup(pool: PgPool) -> Result<Router, s3::Error> {
         return Ok(app);
     }
     let app = Router::new()
-        .route("/sign-in", post(login_user)) 
-        .route("/sign-up", post(create_user))
-        .route("/sign-out", post(logout_user)) 
-        .route("/me", get(read_me)) 
-        .route("/", get(hello_world))
+                .route("/", get(hello_world))
             .with_state(state); 
     Ok(app)
 }
+*/

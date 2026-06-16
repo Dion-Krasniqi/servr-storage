@@ -39,6 +39,11 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      SECRET_KEY: ${SECRET_KEY}
+      TEST_TOKEN: ${TEST_TOKEN}
+      MODE: "NOT_DEV"
+    ports:
+      - "3000:3000"
     depends_on:
       - postgres
       - minio

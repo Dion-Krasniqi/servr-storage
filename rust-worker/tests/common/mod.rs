@@ -1,5 +1,5 @@
 use tokio::net::TcpListener;
-use rust_worker::setup::auth_setup;
+use rust_worker::setup::setup;
 
 pub struct TestApp {
     pub base_url: String,
@@ -24,7 +24,7 @@ pub async fn spawn_app() -> TestApp {
         .await.unwrap();
     let port = listener.local_addr().unwrap().port();
 
-    let app = auth_setup(pool).await.unwrap();
+    let app = setup(pool).await.unwrap();
 
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();

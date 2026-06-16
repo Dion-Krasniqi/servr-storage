@@ -99,7 +99,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub client: s3::Client,
     pub cache: Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>>,
-    
+    pub key: String,
 }
 #[derive(Clone)]
 pub struct AuthState {
