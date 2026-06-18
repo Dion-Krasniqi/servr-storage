@@ -5,6 +5,9 @@ use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
 use sqlx::Acquire;
 use axum_extra::extract::cookie::{Cookie, CookieJar};
+use jsonwebtoken::{encode, decode, Header, Algorithm, EncodingKey,
+                   DecodingKey, Validation};
+
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use bytes::Bytes;
@@ -110,7 +113,7 @@ pub async fn get_files(State(state): State<AppState>,
 )-> Result<Json<HashMap<Uuid, FileResponse>>, ServerError> {
     
     println!("We are fetching!");
-    let user_id = if let Ok(id) = get_current_user(jar).await {
+    let user_id = if let Ok(id) = get_current_user(jar, &state.key).await {
         id
     } else {
         return Err(ServerError::Unauthorized("No session token found".to_string()));
@@ -228,7 +231,7 @@ pub async fn create_folder(State(state): State<AppState>,
 )->Result<StatusCode, ServerError> {
 
     println!("CreateFolder ran");
-    let owner_id = if let Ok(id) = get_current_user(jar).await {
+    let owner_id = if let Ok(id) = get_current_user(jar, &state.key).await {
         Uuid::parse_str(&id)
             .map_err(|_| ServerError::InternalError("Failed to parse user id".to_string()))?
     } else {
@@ -300,12 +303,17 @@ pub async fn create_folder(State(state): State<AppState>,
 
 //2mb limit 
 pub async fn upload_file(State(state): State<AppState>,
-                         mut payload: Multipart
+                         jar: CookieJar,
+                         mut payload: Multipart,
 )->Result<Json<String>, ServerError> {
 
   println!("UploadFile Ran");
   
-  let mut user_id = String::new();
+  let user_id = if let Ok(id) = get_current_user(jar, &state.key).await {
+      id
+  } else {
+        return Err(ServerError::Unauthorized("No session token found".to_string()));
+  };
   let mut data = Bytes::new();
   let mut filename = String::new(); 
   let mut content_type = String::new();
@@ -319,8 +327,9 @@ pub async fn upload_file(State(state): State<AppState>,
         content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
         data = field.bytes().await?;
       },
+      // see about this one since move getting id frm cookies
       Some("user_id") => {
-        user_id = field.text().await?;
+        //user_id = field.text().await?;
       },
       Some("parent_id") => {
         payload_parent_id = field.text().await?;

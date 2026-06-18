@@ -2,11 +2,14 @@ use rust_worker::setup::{setup};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::env;
+use dotenv;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() -> Result<(), aws_sdk_s3::Error>{
+    dotenv::dotenv().ok();
     let database_url = match env::var("DATABASE_URL") {
-        Ok(url) => url,
+        Ok(url) => { println!("{}", url);
+            url},
         Err(e) => { eprintln!("Error: {}", e);
                     "".to_string()
         },
