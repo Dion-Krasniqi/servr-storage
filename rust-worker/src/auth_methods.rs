@@ -23,10 +23,13 @@ fn hash_algorithm(
 // acts more like a session token for now
 fn create_token(
     data: String,
-    expires: usize,
+    expires: u64,
     key: &str,
 ) -> String {
-        let claim = Claims { sub: data, exp: expires };
+    let exp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap().as_secs() + expires;
+    let claim = Claims { sub: data, exp };
     let token = encode(&Header::default(), 
         &claim, 
         &EncodingKey::from_secret(key.as_ref())
@@ -96,15 +99,22 @@ pub async fn get_current_user(
     };
     */
     let encd_token: String = if let Some(session_id) = jar.get("session") {
-        session_id.to_string()
+        session_id.value().to_string()
     } else {
         return Err(
             ServerError::Unauthorized("No session token found".to_string()));
     };
-    let user: Claims = decode(&encd_token, 
+    let user: Claims = match decode(&encd_token, 
         &DecodingKey::from_secret(key.as_ref()), 
-        &Validation::default()).unwrap().claims;
-
+        &Validation::default()) {
+        Ok(val) => val.claims,
+        Err(e) => { 
+            eprintln!("{}", e);
+            return Err(
+            ServerError::InternalError("User already exists".to_string()))
+        },
+    };                    
+    
     Ok(user.sub)
 }
 pub async fn logout_user(

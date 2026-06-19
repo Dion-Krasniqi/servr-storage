@@ -112,7 +112,7 @@ pub struct AuthState {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,
-    pub exp: usize,
+    pub exp: u64,
 }
 // error return types
 #[derive(Debug)]
