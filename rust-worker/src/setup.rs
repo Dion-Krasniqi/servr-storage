@@ -19,10 +19,7 @@ use crate::methods::{get_files,
                      rename_file,
                      download_file,
                      create_bucket,};
-use crate::auth_methods::{login_user, create_user, read_me, 
-    logout_user,
-    login_test,
-    get_current_test,};
+use crate::auth_methods::{login_user, create_user, read_me, logout_user};
 use crate::models::{AppState, AuthState, FileResponse};
 
 async fn hello_world() -> &'static str {
@@ -34,54 +31,6 @@ pub async fn setup(pool: PgPool) -> Result<Router, s3::Error> {
 
     println!("Listener On");
     
-    /* Database Connection Setup
-    let database_url = match env::var("DATABASE_URL") {
-        Ok(url) => url,
-        Err(e) => { eprintln!("Error: {}", e);
-                    "".to_string()
-        },
-    };
-    
-    let pool = PgPoolOptions::new()
-    .max_connections(5)
-    .connect(&database_url)
-    .await
-    .expect("Failed to create pool");
-    */
-    /*
-    // R2 API Setup
-    let account_id = match env::var("ACCOUNT_ID"){
-        Ok(url) => url,
-        Err(e) => { eprintln!("Error: {}", e);
-                    "".to_string()
-        },
-    };
-
-    let access_key_id = match env::var("ACCESS_KEY_ID"){
-        Ok(url) => url,
-        Err(e) => { eprintln!("Error: {}", e);
-                    "".to_string()
-        },
-    };
-
-    let secret_access_key = match env::var("SECRET_ACCESS_KEY"){
-        Ok(url) => url, 
-        Err(e) => { eprintln!("Error: {}", e);
-                    "".to_string()
-        },
-    };
-    
-    let r2_url = format!("https://{}.r2.cloudflarestorage.com",
-        account_id);
-
-    let r2_credentials = aws_sdk_s3::config::Credentials::new(
-        access_key_id,
-        secret_access_key,
-        None,
-        None,
-        "R2",
-    ); */
-
     let minio_url = match env::var("MINIO_ENDPOINT") {
         Ok(url) => { 
             println!("Minio: {}",url);
@@ -134,6 +83,7 @@ pub async fn setup(pool: PgPool) -> Result<Router, s3::Error> {
         .route("/rename-file", post(rename_file))
         .route("/create-folder", post(create_folder))
         .route("/download-file", post(download_file))
+        // auth
         .route("/sign-in", post(login_user)) 
         .route("/sign-up", post(create_user))
         .route("/sign-out", post(logout_user)) 

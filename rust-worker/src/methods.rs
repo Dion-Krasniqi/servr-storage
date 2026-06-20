@@ -497,6 +497,7 @@ pub async fn upload_file(State(state): State<AppState>,
 
 
 pub async fn delete_file(State(state): State<AppState>,
+                         jar: CookieJar,
                          payload: extract::Json<DeleteFileForm>
 )->Result<Json<Value>, ServerError> {
 
@@ -505,13 +506,19 @@ pub async fn delete_file(State(state): State<AppState>,
         println!("User bucket not found!");
         return Err(ServerError::NotFound("User bucket not found".to_string()));
     };
-
-    let file_id = Uuid::parse_str(&payload.file_id) 
-        .map_err(|e| ServerError::InternalError(e.to_string()))?;
-    
+    if let Ok(id) = get_current_user(jar, &state.key).await {
+      if !(payload.owner_id == id) {
+          return Err(ServerError::Unauthorized("Unauthorized".to_string()));
+      }
+    } else {
+        return Err(ServerError::Unauthorized("No session token found".to_string()));
+    };
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
-    
+
+
+    let file_id = Uuid::parse_str(&payload.file_id) 
+        .map_err(|e| ServerError::InternalError(e.to_string()))?; 
     let mut conn = state.pool.acquire().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
     let mut tx = conn.begin().await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
     
@@ -582,21 +589,29 @@ pub async fn delete_file(State(state): State<AppState>,
     Ok(Json(serde_json::json!({"return":"Success"})))
 }
 
-pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<RenameFileForm>
+pub async fn rename_file(State(state): State<AppState>, 
+                         jar: CookieJar,                
+                         payload: Json<RenameFileForm>,
 )->Result<Json<serde_json::Value>, ServerError> {
 
     println!("Rename ran");
+    if let Ok(id) = get_current_user(jar, &state.key).await {
+      if !(payload.owner_id == id) {
+          return Err(ServerError::Unauthorized("Unauthorized".to_string()));
+      }
+    } else {
+        return Err(ServerError::Unauthorized("No session token found".to_string()));
+    };
+    let owner_id = Uuid::parse_str(&payload.owner_id)
+        .map_err(|e| ServerError::InternalError(e.to_string()))?;
+
     let name =  payload.file_name.trim();
     if name.is_empty() {
         println!("Name empty");
         return Err(ServerError::InternalError("Invalid name".to_string()));
     };
     let file_id = Uuid::parse_str(&payload.file_id)
-        .map_err(|e| ServerError::InternalError(e.to_string()))?;
-    let owner_id = Uuid::parse_str(&payload.owner_id)
-        .map_err(|e| ServerError::InternalError(e.to_string()))?;
-    
-    //let name = payload.file_name.trim();
+        .map_err(|e| ServerError::InternalError(e.to_string()))?;    
     match sqlx::query(r#"UPDATE files
                          SET file_name = ($1)
                          WHERE file_id = ($2) AND owner_id = ($3);"#)
@@ -622,8 +637,18 @@ pub async fn rename_file(State(state): State<AppState>, payload: extract::Json<R
     Ok(Json(serde_json::json!({"return":"Success"})))
 }
 pub async fn download_file(State(state): State<AppState>,
+                           jar: CookieJar,
                            payload: extract::Json<DownloadFileForm>
 ) -> Result<Json<serde_json::Value>, ServerError> {
+    
+    if let Ok(id) = get_current_user(jar, &state.key).await {
+      if !(payload.owner_id == id) {
+          return Err(ServerError::Unauthorized("Unauthorized".to_string()));
+      }
+    } else {
+        return Err(ServerError::Unauthorized("No session token found".to_string()));
+    };
+    // this should allow for when email sharing so owner_id and requester id can be diff
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
     let file_id = Uuid::parse_str(&payload.file_id)
