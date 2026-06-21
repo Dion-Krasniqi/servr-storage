@@ -91,13 +91,6 @@ pub async fn get_current_user(
     jar: CookieJar,
     key: &str,
 ) -> Result<String, ServerError> { 
-    /*let SECRET_KEY: String = match std::env::var("SECRET_KEY") {
-        Ok(key) => key,
-        Err(e) => {
-            "".to_string()
-        },
-    };
-    */
     let encd_token: String = if let Some(session_id) = jar.get("session") {
         session_id.value().to_string()
     } else {
@@ -159,12 +152,7 @@ pub async fn create_user(
     create_bucket_func(state.client, &user_id.to_string())
         .await.map_err(|e| ServerError::InternalError("Failed to create user bucket".to_string()))?;
     tx.commit()
-        .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?;
-        /*Ok() => {},
-        _ => return Err(
-                ServerError::InternalError("Failed to create user bucket".to_string())),
-        }*/
-
+        .await.map_err(|e| ServerError::DatabaseError(e.to_string()))?; 
         
     Ok(StatusCode::CREATED)
 }

@@ -122,12 +122,9 @@ pub async fn get_files(State(state): State<AppState>,
             .map_err(|_| ServerError::InternalError("Failed to parse user id".to_string()))?;
     let client = &state.client;
     let pool = &state.pool;
-
-    /*let owner_id = Uuid::parse_str(&payload.owner_id) 
-        .map_err(|_| ServerError::InternalError("Failed to parse user id".to_string()))?;
-    */
+ 
     let cur_date = Utc::now();
-    
+    // user bucket checked after this, think abt it
     if let Some(c) = state.cache.get(&owner_id).await { 
         println!("Cache hit, {} items", c.len()); 
         let to_update: Vec<Uuid> = c
@@ -314,6 +311,12 @@ pub async fn upload_file(State(state): State<AppState>,
   } else {
         return Err(ServerError::Unauthorized("No session token found".to_string()));
   };
+  if check_bucket(&state.client, &user_id).await? {
+      println!("Bucket does exit");
+  } else {
+    println!("User bucket not found");
+    return Err(ServerError::NotFound("User bucket not found".to_string()));
+  };
   let mut data = Bytes::new();
   let mut filename = String::new(); 
   let mut content_type = String::new();
@@ -337,13 +340,7 @@ pub async fn upload_file(State(state): State<AppState>,
       _ => {}
       }
   };
- 
-  if check_bucket(&state.client, &user_id).await? {
-      println!("Bucket does exit");
-  } else {
-    println!("User bucket not found");
-    return Err(ServerError::NotFound("User bucket not found".to_string()));
-  };
+  
 
   let file_size = data.len() as i64; 
   let owner_id = Uuid::parse_str(&user_id)
@@ -492,26 +489,27 @@ pub async fn upload_file(State(state): State<AppState>,
       HashMap::from([(file_id, uploaded_file)],) 
   };
   state.cache.insert(owner_id, Arc::new(cached_files)).await;
-  Ok(Json("File uploaded".to_string()))
+  Ok(Json("File Uploaded".to_string()))
 }
 
 
 pub async fn delete_file(State(state): State<AppState>,
                          jar: CookieJar,
                          payload: extract::Json<DeleteFileForm>
-)->Result<Json<Value>, ServerError> {
+)->Result<Json<String>, ServerError> {
 
     println!("DeleteFile Ran");
-    if !((check_bucket(&state.client, &payload.owner_id)).await?) {
-        println!("User bucket not found!");
-        return Err(ServerError::NotFound("User bucket not found".to_string()));
-    };
     if let Ok(id) = get_current_user(jar, &state.key).await {
       if !(payload.owner_id == id) {
           return Err(ServerError::Unauthorized("Unauthorized".to_string()));
       }
     } else {
         return Err(ServerError::Unauthorized("No session token found".to_string()));
+    };
+
+    if !((check_bucket(&state.client, &payload.owner_id)).await?) {
+        println!("User bucket not found!");
+        return Err(ServerError::NotFound("User bucket not found".to_string()));
     };
     let owner_id = Uuid::parse_str(&payload.owner_id)
         .map_err(|e| ServerError::InternalError(e.to_string()))?;
@@ -586,13 +584,13 @@ pub async fn delete_file(State(state): State<AppState>,
         state.cache.insert(owner_id, Arc::new(e)).await;
     }
                                             
-    Ok(Json(serde_json::json!({"return":"Success"})))
+    Ok(Json("File Deleted".to_string()))
 }
 
 pub async fn rename_file(State(state): State<AppState>, 
                          jar: CookieJar,                
                          payload: Json<RenameFileForm>,
-)->Result<Json<serde_json::Value>, ServerError> {
+)->Result<Json<String>, ServerError> {
 
     println!("Rename ran");
     if let Ok(id) = get_current_user(jar, &state.key).await {
@@ -634,7 +632,7 @@ pub async fn rename_file(State(state): State<AppState>,
             state.cache.insert(owner_id, Arc::new(e)).await;
     }
    
-    Ok(Json(serde_json::json!({"return":"Success"})))
+    Ok(Json("File Renamed".to_string()))
 }
 pub async fn download_file(State(state): State<AppState>,
                            jar: CookieJar,
