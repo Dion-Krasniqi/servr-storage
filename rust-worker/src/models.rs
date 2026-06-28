@@ -37,7 +37,6 @@ pub struct DatabaseFile {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct FileResponse {
-    //pub file: DatabaseFile
     pub file_id: Uuid,
     pub owner_id: Uuid,
     pub parent_id: Option<Uuid>,
@@ -93,7 +92,7 @@ pub struct SignUpForm {
 pub struct TestToken {
     pub token: String,
 }
-
+pub struct FileCache(Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>>);
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,

@@ -5,7 +5,9 @@ use crate::models::{ServerError,
                     SignInForm,
                     SignUpForm,
                     TestToken,
-                    Claims};
+                    Claims,
+                    FileCache,
+                    FileResponse};
 use jsonwebtoken::{encode, decode, Header, Algorithm, EncodingKey,
                    DecodingKey, Validation};
 use sha2::{Sha256, Digest};
@@ -13,14 +15,19 @@ use uuid::Uuid;
 use crate::methods::create_bucket_func;
 use sqlx::Acquire;
 
+use moka::future::Cache;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 fn hash_algorithm(
-    password: &str, 
+password: &str, 
 ) -> String {
     let hash = Sha256::digest(password);
     //format!("{:x}", hash)
     hash.iter().map(|a| format!("{:02x}", a)).collect()
 }
-// acts more like a session token for now
+// acts more like a session token, potentially call database to check for session and if user
+// exists but think
 fn create_token(
     data: String,
     expires: u64,
@@ -90,6 +97,7 @@ pub async fn read_me(
 pub async fn get_current_user(
     jar: CookieJar,
     key: &str,
+    cache: &Cache<Uuid, Arc<HashMap<Uuid, FileResponse>>>, 
 ) -> Result<String, ServerError> { 
     let encd_token: String = if let Some(session_id) = jar.get("session") {
         session_id.value().to_string()
@@ -102,13 +110,16 @@ pub async fn get_current_user(
         &Validation::default()) {
         Ok(val) => val.claims,
         Err(e) => { 
-            eprintln!("{}", e);
             return Err(
-            ServerError::InternalError("User already exists".to_string()))
+            ServerError::InternalError(e.to_string()))
         },
-    };                    
-    
-    Ok(user.sub)
+    };                   
+    if let Ok(u_id) = Uuid::parse_str(&user.sub){
+        if cache.contains_key(&u_id) {
+            return Ok(user.sub);
+        }
+    }
+    Ok("NOT VALID".to_string())
 }
 pub async fn logout_user(
     jar: CookieJar,

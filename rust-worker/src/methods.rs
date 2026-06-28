@@ -113,7 +113,8 @@ pub async fn get_files(State(state): State<AppState>,
 )-> Result<Json<HashMap<Uuid, FileResponse>>, ServerError> {
     
     println!("We are fetching!");
-    let user_id = if let Ok(id) = get_current_user(jar, &state.key).await {
+    let user_id = if let Ok(id) = get_current_user(jar, &state.key, &state.cache).await 
+    && id != "NOT VALID" {
         id
     } else {
         return Err(ServerError::Unauthorized("No session token found".to_string()));
@@ -228,7 +229,8 @@ pub async fn create_folder(State(state): State<AppState>,
 )->Result<StatusCode, ServerError> {
 
     println!("CreateFolder ran");
-    let owner_id = if let Ok(id) = get_current_user(jar, &state.key).await {
+    let owner_id = if let Ok(id) = get_current_user(jar, &state.key, &state.cache).await 
+    && id != "NOT VALID" {
         Uuid::parse_str(&id)
             .map_err(|_| ServerError::InternalError("Failed to parse user id".to_string()))?
     } else {
@@ -306,7 +308,8 @@ pub async fn upload_file(State(state): State<AppState>,
 
   println!("UploadFile Ran");
   
-  let user_id = if let Ok(id) = get_current_user(jar, &state.key).await {
+  let user_id = if let Ok(id) = get_current_user(jar, &state.key, &state.cache).await 
+  && id != "NOT VALID" {
       id
   } else {
         return Err(ServerError::Unauthorized("No session token found".to_string()));
@@ -499,7 +502,7 @@ pub async fn delete_file(State(state): State<AppState>,
 )->Result<Json<String>, ServerError> {
 
     println!("DeleteFile Ran");
-    if let Ok(id) = get_current_user(jar, &state.key).await {
+    if let Ok(id) = get_current_user(jar, &state.key, &state.cache).await {
       if !(payload.owner_id == id) {
           return Err(ServerError::Unauthorized("Unauthorized".to_string()));
       }
@@ -593,7 +596,7 @@ pub async fn rename_file(State(state): State<AppState>,
 )->Result<Json<String>, ServerError> {
 
     println!("Rename ran");
-    if let Ok(id) = get_current_user(jar, &state.key).await {
+    if let Ok(id) = get_current_user(jar, &state.key, &state.cache).await {
       if !(payload.owner_id == id) {
           return Err(ServerError::Unauthorized("Unauthorized".to_string()));
       }
@@ -639,7 +642,7 @@ pub async fn download_file(State(state): State<AppState>,
                            payload: extract::Json<DownloadFileForm>
 ) -> Result<Json<serde_json::Value>, ServerError> {
     
-    if let Ok(id) = get_current_user(jar, &state.key).await {
+    if let Ok(id) = get_current_user(jar, &state.key, &state.cache).await {
       if !(payload.owner_id == id) {
           return Err(ServerError::Unauthorized("Unauthorized".to_string()));
       }
