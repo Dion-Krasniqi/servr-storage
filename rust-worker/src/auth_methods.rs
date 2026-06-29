@@ -13,6 +13,7 @@ use jsonwebtoken::{encode, decode, Header, Algorithm, EncodingKey,
 use sha2::{Sha256, Digest};
 use uuid::Uuid;
 use crate::methods::create_bucket_func;
+use crate::msc_actions::get_user_id;
 use sqlx::Acquire;
 
 use moka::future::Cache;
@@ -50,26 +51,10 @@ pub async fn login_user(
 ) -> Result<CookieJar, ServerError> {
     println!("{}", payload.email);
     let email = payload.email.clone();
-    let user: Option<(Uuid, String, bool)> = 
-        sqlx::query_as(r#"SELECT user_id,hashed_password,active from users
-                          WHERE email = ($1);"#)
-        .bind(&email)
-        .fetch_optional(&state.pool)
+    let user_id = get_user_id(&email, &payload.password, &state.pool)
         .await
-        .map_err(|e| ServerError::DatabaseError(format!("Failed to fetch user. Error: {}", e)))?;
-    if user.is_none() {
-        println!("user doesnt exist");
-        return Err(ServerError::InternalError("User not found".to_string()));
-    }
-    let (hashed_password, user_id) = if let Some((id, password, is_active)) = user && is_active {
-        (password, id)
-    } else {
-        return Err(ServerError::InternalError("User not found or is not active".to_string())); 
-    };
-    let user_password = hash_algorithm(&payload.password);
-    if !(user_password == hashed_password) { 
-        return Err(ServerError::InternalError("User password does not match".to_string()));
-    }
+        .map_err(
+        |e| ServerError::InternalError("Error getting user id".to_string()))?; 
     let token = create_token(user_id.to_string(), 300, &state.key);
     let cookie = Cookie::build(("session", token))
         .path("/")
@@ -92,7 +77,7 @@ pub async fn read_me(
         &DecodingKey::from_secret(&state.key.as_ref()), 
         &Validation::default()).unwrap().claims;
 
-    Ok(user.sub)
+Ok(user.sub)
 }
 pub async fn get_current_user(
     jar: CookieJar,
@@ -117,13 +102,17 @@ pub async fn get_current_user(
     if let Ok(u_id) = Uuid::parse_str(&user.sub){
         if cache.contains_key(&u_id) {
             return Ok(user.sub);
+        } else{
+            // check session in the db or user
         }
     }
     Ok("NOT VALID".to_string())
 }
 pub async fn logout_user(
+    State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<CookieJar, ServerError> {
+    
     Ok(jar.remove(Cookie::from("session")))
 }
 pub async fn create_user(
