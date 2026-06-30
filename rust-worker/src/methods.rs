@@ -93,21 +93,6 @@ pub async fn create_bucket(State(state): State<AppState>,
     }
 }
 // same thing but above serves as endpoint currently
-pub async fn create_bucket_func(client: s3::Client,
-                        owner_id: &str,
-) -> Result<(), ServerError> {
-    match client.create_bucket()
-        .bucket(owner_id)
-        .send()
-        .await{   
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                        eprintln!("Error {:?}", e);    
-                        return Err(ServerError::S3Error(e.into()))
-            }
-    }
-}
-
 pub async fn get_files(State(state): State<AppState>,
                        jar: CookieJar,
 )-> Result<Json<HashMap<Uuid, FileResponse>>, ServerError> {

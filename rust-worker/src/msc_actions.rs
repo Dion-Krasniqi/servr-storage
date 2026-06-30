@@ -1,7 +1,8 @@
 use crate::models::ServerError;
 use uuid::Uuid;
+use sha2::{Sha256, Digest};
 use sqlx::PgPool;
-
+use aws_sdk_s3 as s3;
 
 pub async fn get_user_id(
     email: &str,
@@ -30,8 +31,27 @@ pub async fn get_user_id(
     }
     Ok(user_id)
 }
-fn hash_algorithm(
-    password: &str
+pub fn hash_algorithm(
+password: &str, 
 ) -> String {
-    "Hello".to_string()
+    let hash = sha2::Sha256::digest(password);
+    //format!("{:x}", hash)
+    hash.iter().map(|a| format!("{:02x}", a)).collect()
 }
+
+pub async fn create_bucket_func(client: s3::Client,
+                        owner_id: &str,
+) -> Result<(), ServerError> {
+    match client.create_bucket()
+        .bucket(owner_id)
+        .send()
+        .await{   
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                        eprintln!("Error {:?}", e);    
+                        return Err(ServerError::S3Error(e.into()))
+            }
+    }
+}
+
+
